@@ -1,0 +1,1 @@
+Implement the requested task according to the plan. Inspect the actual files before editing, make the smallest coherent change, and preserve project conventions. Do not commit. At the end, summarize files changed and any uncertainty.

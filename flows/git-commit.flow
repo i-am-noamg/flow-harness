@@ -1,0 +1,98 @@
+name: git-commit
+version: 1
+
+inputs:
+  msg:
+    type: string
+    default: ""
+  push:
+    type: boolean
+    default: false
+  force_with_lease:
+    type: boolean
+    default: false
+  add_all:
+    type: boolean
+    default: false
+  new_branch:
+    type: boolean
+    default: false
+  branch:
+    type: string
+    default: ""
+
+steps:
+  - id: add_all
+    type: command
+    command: git
+    args: [add, -A]
+    when: add_all == true
+
+  - id: staged_guard
+    type: command
+    command: git
+    args: [diff, --cached, --quiet]
+    stopWhen: staged_guard.exit_code == 0
+    stopMessage: "Nothing to commit: no staged changes (use --add-all to stage unstaged files)"
+
+  - id: status
+    type: command
+    command: git
+    args: [status, --short]
+
+  - id: unstaged_diff
+    type: command
+    command: git
+    args: [diff]
+    when: msg == ""
+
+  - id: staged_diff
+    type: command
+    command: git
+    args: [diff, --cached]
+    when: msg == ""
+
+  - id: generate_message
+    type: agent
+    model: cheap
+    prompt: prompts/git-commit-message.md
+    inputs: [status.output, unstaged_diff.output, staged_diff.output, new_branch, branch]
+    outputs: [commit_message, generated_branch]
+    outputFormat: json
+    when: 'msg == "" || (new_branch == true && branch == "")'
+
+  - id: create_branch
+    type: command
+    command: git
+    args: [checkout, -b, "{{branch}}"]
+    when: new_branch == true && branch != ""
+
+  - id: create_generated_branch
+    type: command
+    command: git
+    args: [checkout, -b, "{{generated_branch}}"]
+    when: new_branch == true && branch == ""
+
+  - id: commit_supplied
+    type: command
+    command: git
+    args: [commit, -m, "{{msg}}"]
+    when: msg != ""
+
+  - id: commit_generated
+    type: command
+    command: git
+    args: [commit, -m, "{{commit_message}}"]
+    when: msg == ""
+
+  - id: push
+    type: command
+    command: git
+    args: [push, origin, HEAD]
+    when: push == true && force_with_lease == false
+
+  - id: force_push
+    type: command
+    command: git
+    args: [push, --force-with-lease, origin, HEAD]
+    when: push == true && force_with_lease == true

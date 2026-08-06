@@ -1,0 +1,1 @@
+Inspect the repository for the requested task. Identify relevant files, conventions, existing tests, and risks. Do not modify files. Produce a compact, actionable repository summary for another agent.

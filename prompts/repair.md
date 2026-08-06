@@ -1,0 +1,1 @@
+Repair the implementation based on the failing test output. Inspect the current working tree and diff first; do not assume the previous implementation was correct. Make a focused fix, then summarize the root cause and changes. Do not commit.

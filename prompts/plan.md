@@ -1,0 +1,1 @@
+Create a precise implementation plan for the task based on the repository summary. Name files to change, explain the design, and define verification steps. Do not modify files.
