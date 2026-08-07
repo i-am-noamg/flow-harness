@@ -18,6 +18,7 @@ Git commit options:
   --force-with-lease          Use force-with-lease when pushing (requires --push)
   --add-all                   Stage all unstaged files before committing (default: false)
   --new-branch [branch-name]  Create a branch; generate a name when omitted
+  --simple            Skip inspection and planning; implement and validate directly
 
 Environment:
   FLOW_WORKFLOW   Default workflow path (default: flows/code-change.flow)
@@ -63,6 +64,7 @@ async function main(): Promise<void> {
     } else if (option === "--push") inputs.push = true;
     else if (option === "--force-with-lease") inputs.force_with_lease = true;
     else if (option === "--add-all") inputs.add_all = true;
+    else if (option === "--simple") inputs.simple = true;
     else if (option === "--new-branch") {
       inputs.new_branch = true;
       if (optionArgs[i + 1] && !optionArgs[i + 1].startsWith("--")) inputs.branch = optionArgs[++i];

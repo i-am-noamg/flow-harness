@@ -3,12 +3,16 @@ version: 1
 
 inputs:
   task: string
+  simple:
+    type: boolean
+    default: false
 
 steps:
   - id: inspect
     type: agent
     model: cheap
     prompt: prompts/inspect.md
+    when: simple == false
     outputs: [repo_summary]
     inputs: [task]
 
@@ -16,6 +20,7 @@ steps:
     type: agent
     model: strongest
     prompt: prompts/plan.md
+    when: simple == false
     inputs: [task, repo_summary]
     outputs: [plan]
 

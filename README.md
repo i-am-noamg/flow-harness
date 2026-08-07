@@ -21,7 +21,11 @@ Or run a workflow directly:
 
 ```bash
 npm run dev -- run flows/code-change.flow --task "fix the failing tests"
+# Skip inspection and planning when the implementation approach is already known
+npm run dev -- run flows/code-change.flow --task "fix the failing tests" --simple
 ```
+
+`--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
 Runs are persisted under `.flow/runs/`. Commands always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents.
 
