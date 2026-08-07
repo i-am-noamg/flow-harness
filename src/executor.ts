@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { runAgent } from "./pi-agent.js";
+import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId } from "./artifacts.js";
 import type { AgentStep, RunState, Step, StepResult, Workflow, WorkflowInput } from "./types.js";
 
@@ -68,8 +69,16 @@ export async function execute(workflow: Workflow, root: string, cwd: string, tas
         }
       } else {
         const prompt = await makePrompt(step, root, artifacts, task);
-        const r = await runAgent(prompt, cwd, step.model);
-        result.result = r; artifacts[step.id] = r;
+        const before = step.writes ? snapshotWorkspace(cwd) : undefined;
+        const r = await runAgent(prompt, cwd, step.model, step.writes ?? false);
+        const after = step.writes ? snapshotWorkspace(cwd) : undefined;
+        const changed = before && after ? workspaceChanged(before, after) : undefined;
+        const agentResult = {
+          ...r,
+          ...(changed === undefined ? {} : { changed, changed_files: changedFiles(before!, after!) }),
+        };
+        result.result = agentResult;
+        artifacts[step.id] = agentResult;
         if (step.outputFormat === "single-line") r.output = normalizeSingleLine(r.output);
         if (step.outputFormat === "json") {
           let parsed: any;

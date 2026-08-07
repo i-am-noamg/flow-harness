@@ -7,7 +7,7 @@ function textFromMessage(message: any): string {
   return "";
 }
 
-export async function runAgent(prompt: string, cwd: string, profile?: string): Promise<AgentResult> {
+export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false): Promise<AgentResult> {
   const started = Date.now();
   const sdk: any = await import("@earendil-works/pi-coding-agent");
   const runtime = await sdk.ModelRuntime.create();
@@ -18,7 +18,14 @@ export async function runAgent(prompt: string, cwd: string, profile?: string): P
     model = runtime.getModel(provider, rest.join("/"));
     if (!model) throw new Error(`Model not found: ${requested}`);
   }
-  const { session } = await sdk.createAgentSession({ cwd, model, modelRuntime: runtime, sessionManager: sdk.SessionManager.inMemory() });
+  const { session } = await sdk.createAgentSession({
+    cwd,
+    model,
+    modelRuntime: runtime,
+    sessionManager: sdk.SessionManager.inMemory(),
+    // Read-only agents receive no bash/edit/write tools. `writes: true` opts into the full coding toolset.
+    tools: writes ? ["read", "bash", "edit", "write"] : ["read", "grep", "find", "ls"],
+  });
   await session.prompt(prompt);
   const messages = session.messages ?? session.agent?.state?.messages ?? [];
   const assistant = [...messages].reverse().find((m: any) => m.role === "assistant");

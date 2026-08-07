@@ -28,6 +28,12 @@ export interface AgentResult {
   output: string;
   model?: string;
   duration: number;
+  changed?: boolean;
+  changed_files?: string[];
+}
+export interface WorkspaceSnapshot {
+  fingerprint: string;
+  files: Record<string, string>;
 }
 export interface StepResult {
   id: string;

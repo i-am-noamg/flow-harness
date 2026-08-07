@@ -34,12 +34,13 @@ steps:
     type: exec
     program: npm
     args: [test]
+    when: implement.changed == true
 
   - id: repair
     type: agent
     model: capable
     prompt: prompts/repair.md
-    when: test.exit_code != 0
+    when: implement.changed == true && test.exit_code != 0
     inputs: [task, plan, implement.output, test.exit_code, test.output]
     writes: true
 
@@ -47,4 +48,4 @@ steps:
     type: exec
     program: npm
     args: [test]
-    when: test.exit_code != 0
+    when: implement.changed == true && test.exit_code != 0
