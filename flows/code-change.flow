@@ -31,8 +31,9 @@ steps:
     writes: true
 
   - id: test
-    type: command
-    command: npm test
+    type: exec
+    program: npm
+    args: [test]
 
   - id: repair
     type: agent
@@ -43,6 +44,7 @@ steps:
     writes: true
 
   - id: verify_after_repair
-    type: command
-    command: npm test
+    type: exec
+    program: npm
+    args: [test]
     when: test.exit_code != 0

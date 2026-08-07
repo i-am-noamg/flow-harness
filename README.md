@@ -27,7 +27,28 @@ npm run dev -- run flows/code-change.flow --task "fix the failing tests" --simpl
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
-Runs are persisted under `.flow/runs/`. Commands always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents.
+Runs are persisted under `.flow/runs/`. Process steps always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents.
+
+## Process steps
+
+Use `exec` for a direct executable invocation (no shell parsing):
+
+```yaml
+- id: tests
+  type: exec
+  program: npm
+  args: [test]
+```
+
+Use `shell` for pipes, redirects, chaining, globbing, or other shell syntax:
+
+```yaml
+- id: search
+  type: shell
+  command: rg "TODO" src | sort
+```
+
+A shell can be selected explicitly with `shell: bash` or `shell: sh`.
 
 ## Git commits
 

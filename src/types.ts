@@ -1,4 +1,4 @@
-export type StepType = "agent" | "command";
+export type StepType = "agent" | "shell" | "exec";
 export type ModelProfile = string;
 
 export interface WorkflowInput { type: "string" | "boolean"; default?: string | boolean; }
@@ -12,8 +12,9 @@ export interface Workflow {
 
 export interface StepBase { id: string; type: StepType; when?: string; inputs?: string[]; outputs?: string[]; stopWhen?: string; stopMessage?: string; }
 export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt: string; writes?: boolean; outputFormat?: "text" | "single-line" | "json"; }
-export interface CommandStep extends StepBase { type: "command"; command: string; args?: string[]; cwd?: string; timeout?: number; }
-export type Step = AgentStep | CommandStep;
+export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; }
+export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; }
+export type Step = AgentStep | ShellStep | ExecStep;
 
 export interface CommandResult {
   output: string;

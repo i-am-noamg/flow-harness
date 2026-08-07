@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { runCommand } from "./command.js";
+import { runExec, runShell } from "./command.js";
 import { runAgent } from "./pi-agent.js";
 import { RunStore, makeRunId } from "./artifacts.js";
-import type { AgentStep, CommandStep, RunState, Step, StepResult, Workflow, WorkflowInput } from "./types.js";
+import type { AgentStep, RunState, Step, StepResult, Workflow, WorkflowInput } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
 
@@ -43,11 +43,21 @@ export async function execute(workflow: Workflow, root: string, cwd: string, tas
     const started = new Date().toISOString(); const result: StepResult = { id: step.id, type: step.type, status: "running", started_at: started }; run.steps.push(result); await store.save(run);
     console.log(`→ ${step.id}`);
     try {
-      if (step.type === "command") {
-        const command = step.args
-          ? { executable: render(step.command, artifacts, task), args: step.args.map((arg) => render(arg, artifacts, task)) }
-          : render(step.command, artifacts, task);
-        const r = await runCommand(command, step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout);
+      if (step.type === "shell") {
+        const command = render(step.command, artifacts, task);
+        const r = await runShell(command, step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell);
+        result.result = r; artifacts[step.id] = r; artifacts[`${step.id}.output`] = r.output;
+        result.status = r.succeeded ? "succeeded" : "failed";
+        if (!r.succeeded) console.log(`✗ ${step.id} (exit ${r.exit_code})`); else console.log(`✓ ${step.id}`);
+        if (step.stopWhen && shouldRun(step.stopWhen, artifacts)) {
+          result.error = step.stopMessage ?? `Stopped by ${step.id}`;
+          result.status = "failed"; run.status = "failed"; run.finished_at = new Date().toISOString();
+          console.error(`✗ ${step.id}: ${result.error}`); result.finished_at = run.finished_at; await store.save(run); return run;
+        }
+      } else if (step.type === "exec") {
+        const program = render(step.program, artifacts, task);
+        const args = (step.args ?? []).map((arg) => render(arg, artifacts, task));
+        const r = await runExec(program, args, step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout);
         result.result = r; artifacts[step.id] = r; artifacts[`${step.id}.output`] = r.output;
         result.status = r.succeeded ? "succeeded" : "failed";
         if (!r.succeeded) console.log(`✗ ${step.id} (exit ${r.exit_code})`); else console.log(`✓ ${step.id}`);
@@ -80,7 +90,7 @@ export async function execute(workflow: Workflow, root: string, cwd: string, tas
     if (result.status === "failed" && step.type === "agent") { run.status = "failed"; await store.save(run); return run; }
     await store.save(run);
   }
-  const commandResults = run.steps.filter((s) => s.type === "command" && !workflow.steps.find((step) => step.id === s.id)?.stopWhen);
+  const commandResults = run.steps.filter((s) => (s.type === "shell" || s.type === "exec") && !workflow.steps.find((step) => step.id === s.id)?.stopWhen);
   run.status = commandResults.some((step) => step.status === "failed") ? "failed" : "succeeded";
   run.finished_at = new Date().toISOString(); await store.save(run);
   console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`); return run;

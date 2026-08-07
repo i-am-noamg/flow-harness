@@ -26,11 +26,13 @@ export function validateWorkflow(w: Workflow): void {
     if (!step.id || ids.has(step.id)) throw new Error(`Invalid or duplicate step id: ${step.id}`);
     ids.add(step.id);
     const stepId = step.id;
-    if (step.type !== "agent" && step.type !== "command") throw new Error(`${stepId}: unsupported type`);
+    if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec") throw new Error(`${stepId}: unsupported type`);
     if (step.type === "agent" && !step.prompt) throw new Error(`${step.id}: agent requires prompt`);
     if (step.type === "agent" && step.outputFormat !== undefined && step.outputFormat !== "text" && step.outputFormat !== "single-line" && step.outputFormat !== "json") throw new Error(`${step.id}: unsupported output format`);
-    if (step.type === "command" && !step.command) throw new Error(`${step.id}: command requires command`);
-    if (step.type === "command" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: command args must be strings`);
+    if (step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);
+    if (step.type === "shell" && step.shell !== undefined && typeof step.shell !== "string") throw new Error(`${step.id}: shell must be a string`);
+    if (step.type === "exec" && !step.program) throw new Error(`${step.id}: exec requires program`);
+    if (step.type === "exec" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: exec args must be strings`);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
   }
