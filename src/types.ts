@@ -6,7 +6,6 @@ export type WorkflowInputs = Record<string, string | WorkflowInput>;
 
 export interface Workflow {
   name: string;
-  version: number;
   inputs?: WorkflowInputs;
   steps: Step[];
 }

@@ -38,7 +38,7 @@ function defaultInputs(workflow: Workflow): Record<string, any> {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (!args.length || args[0] === "--help" || args[0] === "-h") return help();
-  if (args[0] === "validate") { if (!args[1]) throw new Error("A workflow path is required"); const { workflow } = await loadWorkflow(args[1]); console.log(`valid: ${workflow.name} v${workflow.version}`); return; }
+  if (args[0] === "validate") { if (!args[1]) throw new Error("A workflow path is required"); const { workflow } = await loadWorkflow(args[1]); console.log(`valid: ${workflow.name}`); return; }
 
   let workflowFile = process.env.FLOW_WORKFLOW ?? "flows/code-change.flow";
   let task = "";

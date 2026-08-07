@@ -1,5 +1,4 @@
 name: code-change
-version: 1
 
 inputs:
   task: string
