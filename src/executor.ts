@@ -43,8 +43,11 @@ export async function execute(workflow: Workflow, root: string, cwd: string, ini
     const fatal = await executeStep(step, step.id, run, store, artifacts, root, cwd);
     if (fatal) { run.status = "failed"; run.finished_at = new Date().toISOString(); await store.save(run); return run; }
   }
-  const topLevelIds = new Set(workflow.steps.map((step) => step.id));
-  const failed = run.steps.some((result) => topLevelIds.has(result.id) && result.status === "failed" && (result.type === "loop" || result.type === "shell" || result.type === "exec"));
+  const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
+  const failed = run.steps.some((result) => {
+    const step = topLevelSteps.get(result.id);
+    return step !== undefined && !step.stopWhen && result.status === "failed" && (result.type === "loop" || result.type === "shell" || result.type === "exec");
+  });
   run.status = failed ? "failed" : "succeeded";
   run.finished_at = new Date().toISOString(); await store.save(run);
   console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`); return run;
