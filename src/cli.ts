@@ -9,7 +9,7 @@ function help(): void {
 
 Usage:
   flow [options]                         Run the default workflow
-  flow run <workflow.flow> [options]     Run a workflow
+  flow run [workflow.flow] [options]     Run a workflow
   flow validate <workflow.flow>         Validate a workflow
   flow help <workflow.flow|name>        Show workflow description and inputs
 
@@ -58,7 +58,7 @@ function defaultInputs(workflow: Workflow): Record<string, any> {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  if (!args.length || args[0] === "--help" || args[0] === "-h") return help();
+  if (args[0] === "--help" || args[0] === "-h") return help();
   if (args[0] === "help") {
     if (!args[1]) throw new Error("A workflow name or path is required");
     const file = workflowPath(args[1]);
@@ -71,9 +71,11 @@ async function main(): Promise<void> {
   let workflowFile = process.env.FLOW_WORKFLOW ?? "flows/code-change.flow";
   let optionArgs: string[];
   if (args[0] === "run") {
-    workflowFile = args[1];
-    if (!workflowFile) throw new Error("A workflow path is required");
-    optionArgs = args.slice(2);
+    const workflowArg = args[1];
+    if (workflowArg && !workflowArg.startsWith("--")) {
+      workflowFile = workflowArg;
+      optionArgs = args.slice(2);
+    } else optionArgs = args.slice(1);
   } else optionArgs = args;
   workflowFile = workflowPath(workflowFile);
   if (!existsSync(resolve(workflowFile))) throw new Error(`Workflow not found: ${workflowFile}`);
