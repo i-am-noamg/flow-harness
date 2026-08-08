@@ -26,7 +26,26 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     // Read-only agents receive no bash/edit/write tools. `writes: true` opts into the full coding toolset.
     tools: writes ? ["read", "bash", "edit", "write"] : ["read", "grep", "find", "ls"],
   });
-  await session.prompt(prompt);
+  let section: "thinking" | "output" | undefined;
+  const printSection = (next: "thinking" | "output"): void => {
+    if (section === next) return;
+    section = next;
+    console.log(`\n[model ${next}]`);
+  };
+  session.subscribe((event: any) => {
+    if (event.type !== "message_update") return;
+    const update = event.assistantMessageEvent;
+    if (update.type === "thinking_delta" || update.type === "text_delta") {
+      const next = update.type === "thinking_delta" ? "thinking" : "output";
+      printSection(next);
+      process.stdout.write(update.delta);
+    }
+  });
+  try {
+    await session.prompt(prompt);
+  } finally {
+    if (section) process.stdout.write("\n");
+  }
   const messages = session.messages ?? session.agent?.state?.messages ?? [];
   const assistant = [...messages].reverse().find((m: any) => m.role === "assistant");
   const output = textFromMessage(assistant);
