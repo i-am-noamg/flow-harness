@@ -51,6 +51,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.type === "agent" && step.outputFormat !== undefined && step.outputFormat !== "text" && step.outputFormat !== "single-line" && step.outputFormat !== "json") throw new Error(`${step.id}: unsupported output format`);
     if (step.type === "shell" && typeof step.command !== "string" || step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);
     if (step.type === "shell" && step.shell !== undefined && typeof step.shell !== "string") throw new Error(`${step.id}: shell must be a string`);
+    if ((step.type === "shell" || step.type === "exec") && step.quiet !== undefined && typeof step.quiet !== "boolean") throw new Error(`${step.id}: quiet must be a boolean`);
     if (step.type === "exec" && typeof step.program !== "string" || step.type === "exec" && !step.program) throw new Error(`${step.id}: exec requires program`);
     if (step.type === "exec" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: exec args must be strings`);
     if (step.type === "loop") {

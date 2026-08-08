@@ -50,12 +50,14 @@ steps:
     type: exec
     program: git
     args: [diff]
+    quiet: true
     when: msg == ""
 
   - id: staged_diff
     type: exec
     program: git
     args: [diff, --cached]
+    quiet: true
     when: msg == ""
 
   - id: generate_message
