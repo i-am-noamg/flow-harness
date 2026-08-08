@@ -47,7 +47,6 @@ export interface StepResult {
 export interface RunState {
   id: string;
   workflow: string;
-  task: string;
   cwd: string;
   started_at: string;
   finished_at?: string;

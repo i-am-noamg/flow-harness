@@ -6,7 +6,7 @@ A small, declarative workflow harness for coding agents, powered by the Pi SDK.
 
 ```bash
 npm install
-npm run dev -- "add input validation to the API"
+npm run dev -- --task "add input validation to the API"
 ```
 
 Configure model profiles with provider/model IDs:
@@ -24,6 +24,8 @@ npm run dev -- run flows/code-change.flow --task "fix the failing tests"
 # Skip inspection and planning when the implementation approach is already known
 npm run dev -- run flows/code-change.flow --task "fix the failing tests" --simple
 ```
+
+Workflow options come from the workflow's `inputs` definition: use `--<input> <value>` for string inputs and `--<input>` for boolean inputs. All workflow inputs must be supplied through their named flags.
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
@@ -57,9 +59,9 @@ The included `git-commit` flow commits the current changes. If `--msg` is omitte
 ```bash
 npm run dev -- run flows/git-commit.flow --msg "fix auth bug"
 npm run dev -- run flows/git-commit.flow --push
-npm run dev -- run flows/git-commit.flow --new-branch feature/auth --push
+npm run dev -- run flows/git-commit.flow --new-branch --branch feature/auth --push
 npm run dev -- run flows/git-commit.flow --new-branch --push
 npm run dev -- run flows/git-commit.flow --add-all --push --force-with-lease
 ```
 
-Pushing and force-with-lease are both opt-in; force-with-lease requires `--push`. `--add-all` is opt-in (default false) and stages all unstaged files. Without it, the flow stops before branching or committing when there are no staged changes. Generated commit messages may be multiline. `--new-branch` accepts an optional name; when omitted, the cheap commit-message agent generates the branch name. Branches are created with `git checkout -b`.
+Pushing and force-with-lease are opt-in. `--add-all` is opt-in (default false) and stages all unstaged files. Without it, the flow stops before branching or committing when there are no staged changes. Generated commit messages may be multiline. Use `--branch <name>` with `--new-branch` to choose a branch name; when `--branch` is omitted, the cheap commit-message agent generates one. Branches are created with `git checkout -b`.
