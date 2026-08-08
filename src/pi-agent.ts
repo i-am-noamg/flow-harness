@@ -7,7 +7,7 @@ function textFromMessage(message: any): string {
   return "";
 }
 
-export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false): Promise<AgentResult> {
+export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false): Promise<AgentResult> {
   const started = Date.now();
   const sdk: any = await import("@earendil-works/pi-coding-agent");
   const runtime = await sdk.ModelRuntime.create();
@@ -37,14 +37,16 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     const update = event.assistantMessageEvent;
     if (update.type === "thinking_delta" || update.type === "text_delta") {
       const next = update.type === "thinking_delta" ? "thinking" : "output";
-      printSection(next);
-      process.stdout.write(update.delta);
+      if (!quiet) {
+        printSection(next);
+        process.stdout.write(update.delta);
+      }
     }
   });
   try {
     await session.prompt(prompt);
   } finally {
-    if (section) process.stdout.write("\n");
+    if (section && !quiet) process.stdout.write("\n");
   }
   const messages = session.messages ?? session.agent?.state?.messages ?? [];
   const assistant = [...messages].reverse().find((m: any) => m.role === "assistant");

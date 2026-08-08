@@ -14,6 +14,7 @@ Usage:
   flow help <workflow.flow|name>        Show workflow description and inputs
 
 Workflow options:
+  -q, --quite                 Suppress step output (show statuses only)
   --<input> <value>           Set a workflow-defined input
 
 Environment:
@@ -57,7 +58,9 @@ function defaultInputs(workflow: Workflow): Record<string, any> {
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  const quiet = rawArgs.some((arg) => arg === "-q" || arg === "--quite");
+  const args = rawArgs.filter((arg) => arg !== "-q" && arg !== "--quite");
   if (args[0] === "--help" || args[0] === "-h") return help();
   if (args[0] === "help") {
     if (!args[1]) throw new Error("A workflow name or path is required");
@@ -95,7 +98,7 @@ async function main(): Promise<void> {
       inputs[inputName] = optionArgs[++i];
     }
   }
-  const run = await execute(workflow, root, process.cwd(), inputs);
+  const run = await execute(workflow, root, process.cwd(), inputs, quiet);
   process.exitCode = run.status === "succeeded" ? 0 : 1;
 }
 
