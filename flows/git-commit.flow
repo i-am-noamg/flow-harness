@@ -1,24 +1,31 @@
 name: git-commit
+description: Use when you need to create a commit from staged changes, optionally creating a branch or pushing it to origin.
 
 inputs:
   msg:
     type: string
     default: ""
+    description: Commit message; if omitted, generate one from the Git status and diff.
   push:
     type: boolean
     default: false
+    description: Push the commit to origin after committing.
   force_with_lease:
     type: boolean
     default: false
+    description: Use force-with-lease when pushing; only applies with --push.
   add_all:
     type: boolean
     default: false
+    description: Stage all unstaged files before committing.
   new_branch:
     type: boolean
     default: false
+    description: Create a new branch before committing.
   branch:
     type: string
     default: ""
+    description: Branch name to create; if omitted with --new-branch, generate one.
 
 steps:
   - id: add_all

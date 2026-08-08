@@ -25,7 +25,14 @@ npm run dev -- run flows/code-change.flow --task "fix the failing tests"
 npm run dev -- run flows/code-change.flow --task "fix the failing tests" --simple
 ```
 
-Workflow options come from the workflow's `inputs` definition: use `--<input> <value>` for string inputs and `--<input>` for boolean inputs. All workflow inputs must be supplied through their named flags.
+Inspect a workflow before running it:
+
+```bash
+npm run dev -- help code-change
+# Paths also work: npm run dev -- help flows/git-commit.flow
+```
+
+Workflow options come from the workflow's `inputs` definition: use `--<input> <value>` for string inputs and `--<input>` for boolean inputs. Inputs can include a `description` and `default` to document their usage.
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 

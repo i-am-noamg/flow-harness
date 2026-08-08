@@ -1,10 +1,14 @@
 name: code-change
+description: Use when you need an agent to inspect, plan, implement, and test a code change in the current repository.
 
 inputs:
-  task: string
+  task:
+    type: string
+    description: The coding task to implement.
   simple:
     type: boolean
     default: false
+    description: Skip inspection and planning when the implementation approach is already known.
 
 steps:
   - id: inspect

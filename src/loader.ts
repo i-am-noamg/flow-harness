@@ -12,12 +12,14 @@ export async function loadWorkflow(file: string): Promise<{ workflow: Workflow; 
 
 export function validateWorkflow(w: Workflow): void {
   if (!w || typeof w.name !== "string") throw new Error("Workflow requires a name");
+  if (w.description !== undefined && typeof w.description !== "string") throw new Error("Workflow description must be a string");
   if (!Array.isArray(w.steps) || w.steps.length === 0) throw new Error("Workflow requires at least one step");
   if (w.inputs !== undefined) {
     if (!w.inputs || typeof w.inputs !== "object" || Array.isArray(w.inputs)) throw new Error("Workflow inputs must be an object");
     for (const [name, definition] of Object.entries(w.inputs)) {
       const input = typeof definition === "string" ? { type: definition } as WorkflowInput : definition as WorkflowInput;
       if (input.type !== "string" && input.type !== "boolean") throw new Error(`Invalid input type for ${name}`);
+      if (input.description !== undefined && typeof input.description !== "string") throw new Error(`Invalid description for input ${name}`);
       if (input.default !== undefined && typeof input.default !== input.type) throw new Error(`Invalid default for input ${name}`);
     }
   }

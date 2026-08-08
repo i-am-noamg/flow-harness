@@ -1,11 +1,12 @@
 export type StepType = "agent" | "shell" | "exec";
 export type ModelProfile = string;
 
-export interface WorkflowInput { type: "string" | "boolean"; default?: string | boolean; }
+export interface WorkflowInput { type: "string" | "boolean"; description?: string; default?: string | boolean; }
 export type WorkflowInputs = Record<string, string | WorkflowInput>;
 
 export interface Workflow {
   name: string;
+  description?: string;
   inputs?: WorkflowInputs;
   steps: Step[];
 }
