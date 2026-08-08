@@ -36,7 +36,7 @@ Workflow options come from the workflow's `inputs` definition: use `--<input> <v
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
-Runs are persisted under `.flow/runs/`. Process steps always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents.
+Runs are persisted under `.flow/runs/`. Process steps always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents. A fired `stopWhen` is shown as a failed step (`✗`) but terminates the run successfully. A non-fired `stopWhen` is shown as succeeded (`✓`), regardless of the guard command's exit status; command artifacts still expose the original `exit_code` and `succeeded` value.
 
 ## Process steps
 

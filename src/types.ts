@@ -58,6 +58,7 @@ export interface StepResult {
   finished_at?: string;
   result?: CommandResult | AgentResult | LoopResult;
   error?: string;
+  message?: string;
 }
 export interface RunState {
   id: string;
