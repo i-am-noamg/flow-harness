@@ -59,6 +59,29 @@ Use `shell` for pipes, redirects, chaining, globbing, or other shell syntax:
 
 A shell can be selected explicitly with `shell: bash` or `shell: sh`.
 
+## Loops
+
+Use a structured `loop` to retry a sequence until a condition is true:
+
+```yaml
+- id: test_and_repair
+  type: loop
+  maxIterations: 5
+  until: test.succeeded == true
+  steps:
+    - id: test
+      type: exec
+      program: npm
+      args: [test]
+    - id: repair
+      type: agent
+      prompt: prompts/repair.md
+      when: test.exit_code != 0
+      writes: true
+```
+
+The body runs sequentially and `until` is evaluated after each complete iteration. `maxIterations` defaults to 10 and must be a positive integer; exhausting it fails the loop and run. Loops may be nested, and declared step IDs must be unique across the workflow. Conditions and artifacts use logical child IDs (the latest iteration overwrites them), while persisted records use qualified IDs such as `test_and_repair[2].test`. Command failures can be recovered by later loop steps; agent failures and `stopWhen` failures terminate the run.
+
 ## Git commits
 
 The included `git-commit` flow commits the current changes. If `--msg` is omitted, it gives Git status and staged/unstaged diffs to the cheap agent, which returns a structured commit message (including optional multiline text):

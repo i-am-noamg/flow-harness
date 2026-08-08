@@ -34,22 +34,20 @@ steps:
     inputs: [task, plan]
     writes: true
 
-  - id: test
-    type: exec
-    program: npm
-    args: [test]
+  - id: test_and_repair
+    type: loop
+    maxIterations: 5
+    until: test.succeeded == true
     when: implement.changed == true
-
-  - id: repair
-    type: agent
-    model: capable
-    prompt: prompts/repair.md
-    when: implement.changed == true && test.exit_code != 0
-    inputs: [task, plan, implement.output, test.exit_code, test.output]
-    writes: true
-
-  - id: verify_after_repair
-    type: exec
-    program: npm
-    args: [test]
-    when: implement.changed == true && test.exit_code != 0
+    steps:
+      - id: test
+        type: exec
+        program: npm
+        args: [test]
+      - id: repair
+        type: agent
+        model: capable
+        prompt: prompts/repair.md
+        when: test.exit_code != 0
+        inputs: [task, plan, implement.output, test.exit_code, test.output]
+        writes: true

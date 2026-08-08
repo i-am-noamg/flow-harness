@@ -1,4 +1,4 @@
-export type StepType = "agent" | "shell" | "exec";
+export type StepType = "agent" | "shell" | "exec" | "loop";
 export type ModelProfile = string;
 
 export interface WorkflowInput { type: "string" | "boolean"; description?: string; default?: string | boolean; }
@@ -15,7 +15,8 @@ export interface StepBase { id: string; type: StepType; when?: string; inputs?: 
 export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt: string; writes?: boolean; outputFormat?: "text" | "single-line" | "json"; }
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; }
-export type Step = AgentStep | ShellStep | ExecStep;
+export interface LoopStep extends StepBase { type: "loop"; steps: Step[]; until: string; maxIterations?: number; }
+export type Step = AgentStep | ShellStep | ExecStep | LoopStep;
 
 export interface CommandResult {
   output: string;
@@ -32,6 +33,19 @@ export interface AgentResult {
   changed?: boolean;
   changed_files?: string[];
 }
+export interface LoopIteration {
+  iteration: number;
+  started_at: string;
+  finished_at: string;
+  status: "succeeded" | "failed";
+  until: boolean;
+}
+export interface LoopResult {
+  iterations: LoopIteration[];
+  until: string;
+  maxIterations: number;
+  exhausted: boolean;
+}
 export interface WorkspaceSnapshot {
   fingerprint: string;
   files: Record<string, string>;
@@ -42,7 +56,7 @@ export interface StepResult {
   status: "running" | "succeeded" | "failed" | "skipped";
   started_at: string;
   finished_at?: string;
-  result?: CommandResult | AgentResult;
+  result?: CommandResult | AgentResult | LoopResult;
   error?: string;
 }
 export interface RunState {
