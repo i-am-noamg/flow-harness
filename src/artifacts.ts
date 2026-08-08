@@ -11,4 +11,4 @@ export class RunStore {
   }
 }
 
-export function makeRunId(): string { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
+export function makeRunId(): string { return new Date().toISOString().replace(/[:.]/g, "-"); }
