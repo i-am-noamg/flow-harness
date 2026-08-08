@@ -59,7 +59,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     console.log(`↷ ${recordId} skipped`); await store.save(run); return false;
   }
   const result: StepResult = { id: recordId, type: step.type, status: "running", started_at: new Date().toISOString() };
-  run.steps.push(result); await store.save(run); console.log(`→ ${recordId}`);
+  run.steps.push(result); await store.save(run); process.stdout.write(`→ ${recordId}\r`);
   try {
     if (step.type === "loop") {
       const fatal = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd);
