@@ -57,7 +57,7 @@ Use `shell` for pipes, redirects, chaining, globbing, or other shell syntax:
   command: rg "TODO" src | sort
 ```
 
-A shell can be selected explicitly with `shell: bash` or `shell: sh`. Set `quiet: true` on a shell or exec step to suppress its stdout and stderr in the CLI while retaining both in the run JSON (default: `false`).
+A shell can be selected explicitly with `shell: bash` or `shell: sh`. Set `output` on a shell or exec step to control CLI output: `always` (default) streams output, `failure` buffers it and prints only when the command fails, and `never` suppresses it. Output is always retained in the run JSON.
 
 ## Loops
 

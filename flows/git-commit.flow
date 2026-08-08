@@ -50,14 +50,14 @@ steps:
     type: exec
     program: git
     args: [diff]
-    quiet: true
+    output: failure
     when: msg == ""
 
   - id: staged_diff
     type: exec
     program: git
     args: [diff, --cached]
-    quiet: true
+    output: failure
     when: msg == ""
 
   - id: generate_message

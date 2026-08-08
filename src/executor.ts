@@ -73,8 +73,8 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     }
     if (step.type === "shell" || step.type === "exec") {
       const r = step.type === "shell"
-        ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, step.quiet ?? false)
-        : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.quiet ?? false);
+        ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, step.output ?? "always")
+        : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.output ?? "always");
       result.result = r; artifacts[step.id] = r; artifacts[`${step.id}.output`] = r.output;
       const stopped = applyStopWhen(step, result, artifacts);
       if (step.stopWhen) {
