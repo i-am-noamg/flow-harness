@@ -48,7 +48,7 @@ npm run build
 pi -e ./dist/pi-extension.js
 ```
 
-The Pi agent can use `list_flows`, `run_flow`, and `validate_flow`. It receives compact flow results while detailed run state remains under `.flow/runs/`. The existing `flow` CLI remains available for headless runs.
+The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate_flow`. Flow results are compact; detailed run state remains under `.flow/runs/` and can be inspected on demand. The existing `flow` CLI remains available for headless runs. Shared run inspection is also available with `flow list` and `flow inspect <run-id> [--step <id>]`.
 
 ## Process steps
 

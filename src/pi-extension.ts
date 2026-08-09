@@ -1,84 +1,80 @@
-import { existsSync } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { resolve, relative } from "node:path";
+import { resolve } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { execute } from "./executor.js";
-import { loadWorkflow } from "./loader.js";
+import { inspectRun, listFlows, loadFlow, runFlow, summarizeRun, summarizeStep } from "./flow-service.js";
 
 const FlowRunParams = Type.Object({
   flow: Type.String({ description: "Flow name (from flows/) or path to a .flow file" }),
   inputs: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "Workflow-defined inputs" })),
   cwd: Type.Optional(Type.String({ description: "Repository directory; defaults to the current Pi directory" })),
 });
-
-const FlowParams = Type.Object({
-  flow: Type.String({ description: "Flow name or path to a .flow file" }),
+const FlowParams = Type.Object({ flow: Type.String({ description: "Flow name or path to a .flow file" }) });
+const InspectParams = Type.Object({
+  run_id: Type.String({ description: "Flow run ID" }),
+  step_id: Type.Optional(Type.String({ description: "Only inspect this step" })),
 });
 
-function flowPath(flow: string, cwd: string): string {
-  if (flow.includes("/") || flow.endsWith(".flow")) return resolve(cwd, flow);
-  return resolve(cwd, "flows", `${flow}.flow`);
+function catalogText(catalog: Awaited<ReturnType<typeof listFlows>>): string {
+  return catalog.length ? catalog.map((flow) => `- ${flow.name}${flow.description ? `: ${flow.description}` : ""}${flow.inputs.length ? ` (inputs: ${flow.inputs.join(", ")})` : ""}`).join("\n") : "(none)";
 }
-
-async function availableFlows(cwd: string): Promise<string[]> {
-  const directory = resolve(cwd, "flows");
-  if (!existsSync(directory)) return [];
-  return (await readdir(directory, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".flow"))
-    .map((entry) => entry.name.slice(0, -5))
-    .sort();
-}
-
-function summarize(run: any): string {
-  const steps = run.steps.map((step: any) => `${step.id}: ${step.status}`).join(", ");
-  return `Flow ${run.workflow} ${run.status}. Run ${run.id}. Steps: ${steps}`;
+function summaryText(summary: ReturnType<typeof summarizeRun>): string {
+  const steps = summary.steps.map((step) => `${step.id}: ${step.status}`).join(", ");
+  const outputs = Object.entries(summary.important_outputs).map(([id, output]) => `${id}: ${output.split("\n")[0]}`).join(" | ");
+  return `Flow ${summary.flow} ${summary.status}. Run ${summary.run_id}. Steps: ${steps}.${outputs ? ` Outputs: ${outputs}` : ""}`;
 }
 
 export default function flowExtension(pi: ExtensionAPI): void {
-  pi.on("before_agent_start", async (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\nFlow guidance: When a user request matches a workflow in the repository's flows/ directory, prefer the run_flow tool instead of manually reproducing the workflow. Use list_flows when unsure. Pass values through the workflow's declared inputs; do not assume a universal task field. Use validate_flow after editing a flow. Treat the flow result as evidence and continue the conversation naturally.`,
-  }));
+  pi.on("before_agent_start", async (event) => {
+    const catalog = await listFlows(event.systemPromptOptions.cwd);
+    return { systemPrompt: `${event.systemPrompt}\n\nFlow guidance: Prefer run_flow for requests matching an available workflow. Available workflows:\n${catalogText(catalog)}\nPass values through declared workflow inputs; do not assume a universal task field. Use validate_flow after editing a flow. Treat flow results as evidence and continue naturally.` };
+  });
 
   pi.registerTool({
     name: "run_flow",
     label: "Run flow",
-    description: "Run a validated deterministic workflow. Pass all values through workflow-defined inputs. Prefer this for tasks matching an available flow; it returns a compact result while preserving detailed run state on disk.",
+    description: "Run a deterministic workflow with declared inputs. Returns a compact result; use inspect_flow_run for detailed logs.",
     parameters: FlowRunParams,
     async execute(_toolCallId, params, _signal, onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
-      const file = flowPath(params.flow, cwd);
-      if (!existsSync(file)) {
-        const flows = await availableFlows(cwd);
-        return { content: [{ type: "text", text: `Flow not found: ${params.flow}. Available flows: ${flows.join(", ") || "none"}` }], details: { status: "failed" } };
+      try {
+        onUpdate?.({ content: [{ type: "text", text: `Running flow ${params.flow}...` }], details: { status: "running", flow: params.flow } });
+        const { summary } = await runFlow({ flow: params.flow, cwd, inputs: params.inputs, output: "quiet" });
+        const text = summaryText(summary);
+        onUpdate?.({ content: [{ type: "text", text }], details: summary });
+        return { content: [{ type: "text", text }], details: summary };
+      } catch (error) {
+        const text = `Flow failed to start: ${error instanceof Error ? error.message : String(error)}`;
+        return { content: [{ type: "text", text }], details: { status: "failed", error: text } };
       }
-      onUpdate?.({ content: [{ type: "text", text: `Running flow ${params.flow}...` }], details: { status: "running", flow: params.flow } });
-      const { workflow, root } = await loadWorkflow(file);
-      const run = await execute(workflow, root, cwd, params.inputs ?? {}, true);
-      const text = summarize(run);
-      onUpdate?.({ content: [{ type: "text", text }], details: run });
-      return {
-        content: [{ type: "text", text }],
-        details: {
-          run_id: run.id,
-          flow: run.workflow,
-          status: run.status,
-          steps: run.steps,
-          cwd,
-          run_file: relative(cwd, resolve(cwd, ".flow", "runs", `${run.id}.json`)),
-        },
-      };
     },
   });
 
   pi.registerTool({
     name: "list_flows",
     label: "List flows",
-    description: "List workflows available in the current repository.",
+    description: "List workflows available in the current repository, including descriptions and declared inputs.",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const flows = await availableFlows(ctx.cwd);
-      return { content: [{ type: "text", text: flows.length ? flows.join("\n") : "No flows found in flows/" }], details: { flows } };
+      const flows = await listFlows(ctx.cwd);
+      return { content: [{ type: "text", text: catalogText(flows) }], details: { flows } };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_flow_run",
+    label: "Inspect flow run",
+    description: "Inspect a saved flow run or one of its steps. Detailed output is truncated to protect context.",
+    parameters: InspectParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        const inspected = await inspectRun(ctx.cwd, params.run_id, params.step_id);
+        const steps = inspected.steps.map((step) => summarizeStep(step));
+        const details = { run_id: inspected.run.id, flow: inspected.run.workflow, status: inspected.run.status, steps };
+        return { content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details };
+      } catch (error) {
+        const text = `Run inspection failed: ${error instanceof Error ? error.message : String(error)}`;
+        return { content: [{ type: "text", text }], details: { status: "failed", error: text } };
+      }
     },
   });
 
@@ -88,9 +84,8 @@ export default function flowExtension(pi: ExtensionAPI): void {
     description: "Validate a flow before running or after editing it.",
     parameters: FlowParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const file = flowPath(params.flow, ctx.cwd);
       try {
-        const { workflow } = await loadWorkflow(file);
+        const { workflow } = await loadFlow(params.flow, ctx.cwd);
         return { content: [{ type: "text", text: `Valid flow: ${workflow.name}` }], details: { valid: true, flow: workflow.name } };
       } catch (error) {
         return { content: [{ type: "text", text: `Invalid flow: ${error instanceof Error ? error.message : String(error)}` }], details: { valid: false } };
@@ -100,9 +95,6 @@ export default function flowExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("flows", {
     description: "List available flow workflows",
-    handler: async (_args, ctx) => {
-      const flows = await availableFlows(ctx.cwd);
-      ctx.ui.notify(flows.length ? `Flows: ${flows.join(", ")}` : "No flows found in flows/", "info");
-    },
+    handler: async (_args, ctx) => ctx.ui.notify(catalogText(await listFlows(ctx.cwd)), "info"),
   });
 }

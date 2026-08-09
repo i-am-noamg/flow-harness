@@ -72,3 +72,13 @@ export interface RunState {
   status: "running" | "succeeded" | "failed";
   steps: StepResult[];
 }
+export interface FlowCatalogEntry { name: string; path: string; description?: string; inputs: string[]; }
+export interface RunSummary {
+  run_id: string;
+  flow: string;
+  status: RunState["status"];
+  steps: Array<{ id: string; type: StepType; status: StepResult["status"]; exit_code?: number; process_succeeded?: boolean; changed?: boolean; message?: string; error?: string }>;
+  changed_files: string[];
+  important_outputs: Record<string, string>;
+  run_file: string;
+}

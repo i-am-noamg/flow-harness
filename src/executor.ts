@@ -8,6 +8,7 @@ import { RunStore, makeRunId } from "./artifacts.js";
 import type { AgentStep, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
+export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; }
 const DEFAULT_MAX_ITERATIONS = 10;
 
 function lookup(path: string, artifacts: ArtifactMap): any {
@@ -33,10 +34,12 @@ function shouldRun(expression: string | undefined, artifacts: ArtifactMap): bool
   }));
 }
 
-export async function execute(workflow: Workflow, root: string, cwd: string, initialInputs: ArtifactMap = {}, quiet = false): Promise<RunState> {
+export async function execute(options: ExecuteOptions): Promise<RunState> {
+  const { workflow, root, cwd } = options;
+  const quiet = options.output === "quiet";
   const run: RunState = { id: makeRunId(), workflow: workflow.name, cwd, started_at: new Date().toISOString(), status: "running", steps: [] };
   const store = new RunStore(cwd);
-  const artifacts: ArtifactMap = { ...workflowDefaults(workflow.inputs), ...initialInputs };
+  const artifacts: ArtifactMap = { ...(options.inputs ?? {}) };
   await store.save(run);
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
   for (const step of workflow.steps) {
@@ -138,16 +141,6 @@ function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): 
   result.status = stopped ? "failed" : "succeeded";
   if (stopped) result.message = step.stopMessage ?? `Stopped by ${step.id}`;
   return stopped;
-}
-
-function workflowDefaults(inputs: Workflow["inputs"]): ArtifactMap {
-  const defaults: ArtifactMap = {};
-  for (const [name, definition] of Object.entries(inputs ?? {})) {
-    if (typeof definition !== "string" && definition.default !== undefined) defaults[name] = definition.default;
-    else if ((typeof definition === "string" ? definition : definition.type) === "boolean") defaults[name] = false;
-    else defaults[name] = "";
-  }
-  return defaults;
 }
 
 function normalizeSingleLine(value: string): string {
