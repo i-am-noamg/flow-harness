@@ -27,9 +27,9 @@ export async function listFlows(cwd: string): Promise<FlowCatalogEntry[]> {
     const path = join(directory, entry.name);
     try {
       const { workflow } = await loadWorkflow(path);
-      result.push({ name: entry.name.slice(0, -5), path, description: workflow.description, inputs: Object.keys(workflow.inputs ?? {}) });
+      result.push({ name: entry.name.slice(0, -5), path, description: workflow.description, inputs: Object.keys(workflow.inputs ?? {}), outputs: Object.keys(workflow.outputs ?? {}) });
     } catch {
-      result.push({ name: entry.name.slice(0, -5), path, inputs: [] });
+      result.push({ name: entry.name.slice(0, -5), path, inputs: [], outputs: [] });
     }
   }
   return result;
@@ -91,15 +91,14 @@ function excerpt(value: unknown, limit = 2000): string | undefined {
 
 export function summarizeRun(run: RunState, cwd: string): RunSummary {
   const changedFiles = new Set<string>();
-  const importantOutputs: Record<string, string> = {};
+  const failures: RunSummary["failures"] = [];
   const steps = run.steps.map((step) => {
     const result = step.result as any;
     for (const file of result?.changed_files ?? []) changedFiles.add(file);
-    const output = excerpt(result?.output);
-    if (output) importantOutputs[step.id] = output;
-    return { id: step.id, type: step.type, status: step.status, exit_code: result?.exit_code, process_succeeded: result?.succeeded, changed: result?.changed, message: step.message, error: step.error };
+    if (step.status === "failed" || step.outcome === "process_failed_continued") failures.push({ id: step.id, error: step.error, exit_code: result?.exit_code, stdout: excerpt(result?.stdout), stderr: excerpt(result?.stderr) });
+    return { id: step.id, type: step.type, status: step.status, outcome: step.outcome, exit_code: result?.exit_code, process_succeeded: result?.succeeded, changed: result?.changed, message: step.message, error: step.error };
   });
-  return { run_id: run.id, flow: run.workflow, status: run.status, steps, changed_files: [...changedFiles].sort(), important_outputs: importantOutputs, run_file: relative(cwd, join(cwd, ".flow", "runs", `${run.id}.json`)) };
+  return { run_id: run.id, flow: run.workflow, status: run.status, steps, outputs: run.outputs ?? {}, failures, changed_files: [...changedFiles].sort(), run_file: relative(cwd, join(cwd, ".flow", "runs", `${run.id}.json`)) };
 }
 
 export function summarizeStep(step: StepResult, outputLimit = 8000): unknown {

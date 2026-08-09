@@ -8,14 +8,16 @@ export interface Workflow {
   name: string;
   description?: string;
   inputs?: WorkflowInputs;
+  outputs?: Record<string, string>;
   steps: Step[];
 }
 
 export interface StepBase { id: string; type: StepType; when?: string; inputs?: string[]; outputs?: string[]; stopWhen?: string; stopMessage?: string; }
-export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt: string; writes?: boolean; outputFormat?: "text" | "single-line" | "json"; }
+export type StepOutputFormat = "text" | "single-line" | "lines" | "json";
+export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt: string; writes?: boolean; outputFormat?: StepOutputFormat; }
 export type CommandOutput = "always" | "failure" | "never";
-export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; output?: CommandOutput; }
-export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; output?: CommandOutput; }
+export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; output?: CommandOutput; outputFormat?: Exclude<StepOutputFormat, "json">; }
+export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; output?: CommandOutput; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface LoopStep extends StepBase { type: "loop"; steps: Step[]; until: string; maxIterations?: number; }
 export type Step = AgentStep | ShellStep | ExecStep | LoopStep;
 
@@ -62,6 +64,7 @@ export interface StepResult {
   result?: CommandResult | AgentResult | LoopResult;
   error?: string;
   message?: string;
+  outcome?: "completed" | "failed" | "skipped" | "stop_condition_triggered" | "process_failed_continued";
 }
 export interface RunState {
   id: string;
@@ -71,14 +74,16 @@ export interface RunState {
   finished_at?: string;
   status: "running" | "succeeded" | "failed";
   steps: StepResult[];
+  outputs?: Record<string, unknown>;
 }
-export interface FlowCatalogEntry { name: string; path: string; description?: string; inputs: string[]; }
+export interface FlowCatalogEntry { name: string; path: string; description?: string; inputs: string[]; outputs: string[]; }
 export interface RunSummary {
   run_id: string;
   flow: string;
   status: RunState["status"];
-  steps: Array<{ id: string; type: StepType; status: StepResult["status"]; exit_code?: number; process_succeeded?: boolean; changed?: boolean; message?: string; error?: string }>;
+  steps: Array<{ id: string; type: StepType; status: StepResult["status"]; outcome?: StepResult["outcome"]; exit_code?: number; process_succeeded?: boolean; changed?: boolean; message?: string; error?: string }>;
   changed_files: string[];
-  important_outputs: Record<string, string>;
+  outputs: Record<string, unknown>;
+  failures: Array<{ id: string; error?: string; exit_code?: number; stdout?: string; stderr?: string }>;
   run_file: string;
 }

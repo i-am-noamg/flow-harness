@@ -10,6 +10,11 @@ inputs:
     default: false
     description: Skip inspection and planning when the implementation approach is already known.
 
+outputs:
+  changed: implement.changed
+  changed_files: implement.changed_files
+  tests_passed: test.succeeded
+
 steps:
   - id: inspect
     type: agent

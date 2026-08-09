@@ -58,7 +58,7 @@ async function main(): Promise<void> {
     return;
   }
   if (args[0] === "list") {
-    for (const flow of await listFlows(cwd)) console.log(`${flow.name}${flow.description ? ` — ${flow.description}` : ""}`);
+    for (const flow of await listFlows(cwd)) console.log(`${flow.name}${flow.description ? ` — ${flow.description}` : ""}${flow.outputs.length ? ` (outputs: ${flow.outputs.join(", ")})` : ""}`);
     return;
   }
   if (args[0] === "inspect") {

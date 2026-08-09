@@ -12,21 +12,23 @@ const FlowParams = Type.Object({ flow: Type.String({ description: "Flow name or 
 const InspectParams = Type.Object({
   run_id: Type.String({ description: "Flow run ID" }),
   step_id: Type.Optional(Type.String({ description: "Only inspect this step" })),
+  fields: Type.Optional(Type.Array(Type.String({ description: "Top-level or result field to return" }))),
 });
 
 function catalogText(catalog: Awaited<ReturnType<typeof listFlows>>): string {
-  return catalog.length ? catalog.map((flow) => `- ${flow.name}${flow.description ? `: ${flow.description}` : ""}${flow.inputs.length ? ` (inputs: ${flow.inputs.join(", ")})` : ""}`).join("\n") : "(none)";
+  return catalog.length ? catalog.map((flow) => `- ${flow.name}${flow.description ? `: ${flow.description}` : ""}${flow.inputs.length ? ` (inputs: ${flow.inputs.join(", ")})` : ""}${flow.outputs.length ? ` (outputs: ${flow.outputs.join(", ")})` : ""}`).join("\n") : "(none)";
 }
 function summaryText(summary: ReturnType<typeof summarizeRun>): string {
-  const steps = summary.steps.map((step) => `${step.id}: ${step.status}`).join(", ");
-  const outputs = Object.entries(summary.important_outputs).map(([id, output]) => `${id}: ${output.split("\n")[0]}`).join(" | ");
-  return `Flow ${summary.flow} ${summary.status}. Run ${summary.run_id}. Steps: ${steps}.${outputs ? ` Outputs: ${outputs}` : ""}`;
+  const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.outcome && step.outcome !== "completed" ? ` (${step.outcome})` : ""}`).join(", ");
+  const outputs = Object.keys(summary.outputs).length ? `\nOutputs:\n${JSON.stringify(summary.outputs, null, 2)}` : "";
+  const failures = summary.failures.length ? `\nFailures:\n${JSON.stringify(summary.failures, null, 2)}` : "";
+  return `Flow ${summary.flow} ${summary.status}. Run ${summary.run_id}. Steps: ${steps}.${outputs}${failures}\nDetailed evidence: ${summary.run_file}; use inspect_flow_run when a requested fact is not present above.`;
 }
 
 export default function flowExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event) => {
     const catalog = await listFlows(event.systemPromptOptions.cwd);
-    return { systemPrompt: `${event.systemPrompt}\n\nFlow guidance: Prefer run_flow for requests matching an available workflow. Available workflows:\n${catalogText(catalog)}\nPass values through declared workflow inputs; do not assume a universal task field. Use validate_flow after editing a flow. Treat flow results as evidence and continue naturally.` };
+    return { systemPrompt: `${event.systemPrompt}\n\nFlow guidance: Prefer run_flow for requests matching an available workflow. Available workflows:\n${catalogText(catalog)}\nPass values through declared workflow inputs; do not assume a universal task field. Use validate_flow after editing a flow. Treat flow results as evidence, and use inspect_flow_run before answering factual questions about files, commits, logs, or other details omitted from the compact result. Do not infer omitted details.` };
   });
 
   pi.registerTool({
@@ -68,8 +70,17 @@ export default function flowExtension(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
         const inspected = await inspectRun(ctx.cwd, params.run_id, params.step_id);
-        const steps = inspected.steps.map((step) => summarizeStep(step));
-        const details = { run_id: inspected.run.id, flow: inspected.run.workflow, status: inspected.run.status, steps };
+        const steps = inspected.steps.map((step) => {
+          const detailed = summarizeStep(step) as Record<string, any>;
+          if (!params.fields?.length) return detailed;
+          const selected: Record<string, unknown> = {};
+          for (const field of params.fields) {
+            if (field.startsWith("result.")) selected.result = { ...(selected.result as Record<string, unknown> ?? {}), [field.slice(7)]: detailed.result?.[field.slice(7)] };
+            else if (field in detailed) selected[field] = detailed[field];
+          }
+          return { id: step.id, ...selected };
+        });
+        const details = { run_id: inspected.run.id, flow: inspected.run.workflow, status: inspected.run.status, outputs: inspected.run.outputs ?? {}, steps };
         return { content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details };
       } catch (error) {
         const text = `Run inspection failed: ${error instanceof Error ? error.message : String(error)}`;

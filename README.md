@@ -37,7 +37,7 @@ There is no global task argument. Workflow options come from the workflow's `inp
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
-Runs are persisted under `.flow/runs/`. Process steps always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents. A fired `stopWhen` is shown as a failed step (`✗`) but terminates the run successfully. A non-fired `stopWhen` is shown as succeeded (`✓`), regardless of the guard command's exit status; command artifacts still expose the original `exit_code` and `succeeded` value.
+Runs are persisted as one complete JSON record under `.flow/runs/<run-id>.json`. Process steps preserve `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents. A fired `stopWhen` is shown as a failed step (`✗`) but terminates the run successfully; its outcome is `stop_condition_triggered`. A non-fired `stopWhen` is shown as succeeded (`✓`) even when the guard command exits nonzero; its outcome is `process_failed_continued` and the original process result remains available. Workflows can declare public `outputs` mapped from step artifacts; these are returned to Pi without exposing routine raw logs.
 
 ## Pi integration
 
@@ -48,7 +48,27 @@ npm run build
 pi -e ./dist/pi-extension.js
 ```
 
-The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate_flow`. Flow results are compact; detailed run state remains under `.flow/runs/` and can be inspected on demand. The existing `flow` CLI remains available for headless runs. Shared run inspection is also available with `flow list` and `flow inspect <run-id> [--step <id>]`.
+The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate_flow`. Flow results contain statuses, declared outputs, failures, and changed files; routine raw logs remain in the run record and can be selected with `inspect_flow_run` using `step_id` and `fields`. The existing `flow` CLI remains available for headless runs. Shared run inspection is also available with `flow list` and `flow inspect <run-id> [--step <id>].
+
+## Flow outputs
+
+A workflow may declare its public outputs by mapping names to step artifacts. Only these named outputs are included in the compact Pi result; complete step evidence remains in the single run JSON file.
+
+```yaml
+outputs:
+  commit_hash: commit_details.commit_hash
+  pushed: push.succeeded
+
+steps:
+  - id: commit_details
+    type: exec
+    program: git
+    args: [rev-parse, HEAD]
+    outputFormat: single-line
+    outputs: [commit_hash]
+```
+
+Process steps support `text`, `single-line`, and `lines` output formats. With `lines` and two declared outputs, the first line is assigned to the first output and the remaining lines to the second. Use `inspect_flow_run` with `step_id` and `fields` to retrieve raw evidence when needed.
 
 ## Process steps
 

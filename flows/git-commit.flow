@@ -27,6 +27,13 @@ inputs:
     default: ""
     description: Branch name to create; if omitted with --new-branch, generate one.
 
+outputs:
+  commit_message: msg || generated_commit_message
+  commit_hash: commit_details.commit_hash
+  branch: current_branch.branch
+  committed_files: commit_details.committed_files
+  pushed: push.succeeded
+
 steps:
   - id: add_all
     type: exec
@@ -65,7 +72,7 @@ steps:
     model: cheap
     prompt: prompts/git-commit-message.md
     inputs: [status.output, unstaged_diff.output, staged_diff.output, new_branch, branch]
-    outputs: [commit_message, generated_branch]
+    outputs: [generated_commit_message, generated_branch]
     outputFormat: json
     when: 'msg == "" || (new_branch == true && branch == "")'
 
@@ -90,8 +97,24 @@ steps:
   - id: commit_generated
     type: exec
     program: git
-    args: [commit, -m, "{{commit_message}}"]
+    args: [commit, -m, "{{generated_commit_message}}"]
     when: msg == ""
+
+  - id: commit_details
+    type: exec
+    program: git
+    args: [show, --format=%H, --name-only, --no-renames, HEAD]
+    outputFormat: lines
+    outputs: [commit_hash, committed_files]
+    when: commit_supplied.succeeded == true || commit_generated.succeeded == true
+
+  - id: current_branch
+    type: exec
+    program: git
+    args: [branch, --show-current]
+    outputFormat: single-line
+    outputs: [branch]
+    when: commit_supplied.succeeded == true || commit_generated.succeeded == true
 
   - id: push
     type: exec

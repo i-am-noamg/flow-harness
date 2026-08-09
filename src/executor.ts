@@ -44,7 +44,7 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
   for (const step of workflow.steps) {
     const control = await executeStep(step, step.id, run, store, artifacts, root, cwd, quiet);
-    if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.finished_at = new Date().toISOString(); await store.save(run); return run; }
+    if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); await store.save(run); return run; }
   }
   const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
   const failed = run.steps.some((result) => {
@@ -52,6 +52,7 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
     return step !== undefined && !step.stopWhen && result.status === "failed" && (result.type === "loop" || result.type === "shell" || result.type === "exec");
   });
   run.status = failed ? "failed" : "succeeded";
+  run.outputs = resolveWorkflowOutputs(workflow, artifacts);
   run.finished_at = new Date().toISOString(); await store.save(run);
   if (!quiet) console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`); return run;
 }
@@ -60,7 +61,9 @@ type StepControl = "continue" | "stop" | "fail";
 
 async function executeStep(step: Step, recordId: string, run: RunState, store: RunStore, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
   if (!shouldRun(step.when, artifacts)) {
-    run.steps.push({ id: recordId, type: step.type, status: "skipped", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
+    run.steps.push({ id: recordId, type: step.type, status: "skipped", outcome: "skipped", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
+    artifacts[recordId] = { status: "skipped", succeeded: false, output: "" };
+    artifacts[`${recordId}.output`] = "";
     if (!quiet) console.log(`↷ ${recordId} skipped`); await store.save(run); return "continue";
   }
   const result: StepResult = { id: recordId, type: step.type, status: "running", started_at: new Date().toISOString() };
@@ -78,14 +81,25 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       const r = step.type === "shell"
         ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, quiet ? "never" : step.output ?? "always")
         : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, quiet ? "never" : step.output ?? "always");
-      result.result = r; artifacts[step.id] = r; artifacts[`${step.id}.output`] = r.output;
+      result.result = r;
+      const normalizedOutput = normalizeStepOutput(r.output, step.outputFormat);
+      const stepArtifact: Record<string, any> = { ...r, output: normalizedOutput };
+      if (step.outputs?.length) {
+        if (Array.isArray(normalizedOutput) && step.outputs.length > 1) {
+          stepArtifact[step.outputs[0]] = normalizedOutput[0] ?? "";
+          stepArtifact[step.outputs[1]] = normalizedOutput.slice(1);
+        } else for (const output of step.outputs) stepArtifact[output] = normalizedOutput;
+      }
+      artifacts[step.id] = stepArtifact; artifacts[`${step.id}.output`] = normalizedOutput;
       const stopped = applyStopWhen(step, result, artifacts);
       if (step.stopWhen) {
+        result.outcome = stopped ? "stop_condition_triggered" : (r.succeeded ? "completed" : "process_failed_continued");
         result.finished_at = new Date().toISOString(); await store.save(run);
         if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId}`);
         return stopped ? "stop" : "continue";
       }
       result.status = r.succeeded ? "succeeded" : "failed";
+      result.outcome = r.succeeded ? "completed" : "failed";
       result.finished_at = new Date().toISOString(); await store.save(run);
       if (!quiet) console.log(r.succeeded ? `✓ ${recordId}` : `✗ ${recordId} (exit ${r.exit_code})`);
       return "continue";
@@ -102,15 +116,17 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       let parsed: any; try { parsed = JSON.parse(agentResult.output.trim()); } catch { throw new Error("Agent produced malformed JSON output"); }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Agent JSON output must be an object");
       for (const output of agentStep.outputs ?? []) { if (typeof parsed[output] !== "string") throw new Error(`Agent JSON output is missing string field: ${output}`); artifacts[output] = parsed[output]; }
-      if (agentStep.outputs?.includes("commit_message") && !artifacts.commit_message.trim()) throw new Error("Agent produced an empty commit message");
+      if (agentStep.outputs?.includes("generated_commit_message") && !artifacts.generated_commit_message.trim()) throw new Error("Agent produced an empty generated commit message");
     } else for (const output of agentStep.outputs ?? []) artifacts[output] = agentResult.output;
+    for (const output of agentStep.outputs ?? []) (artifacts[agentStep.id] as Record<string, unknown>)[output] = artifacts[output];
     result.status = "succeeded";
+    result.outcome = "completed";
     const stopped = applyStopWhen(agentStep, result, artifacts);
     result.finished_at = new Date().toISOString(); await store.save(run);
     if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId}`);
     return stopped ? "stop" : "continue";
   } catch (error) {
-    result.status = "failed"; result.error = error instanceof Error ? error.message : String(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
+    result.status = "failed"; result.outcome = "failed"; result.error = error instanceof Error ? error.message : String(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
   }
 }
 
@@ -124,23 +140,41 @@ async function executeLoop(step: LoopStep, result: StepResult, recordId: string,
       const control = await executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet);
       if (control !== "continue") {
         loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
-        result.status = control === "stop" ? "succeeded" : "failed"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
+        result.status = control === "stop" ? "succeeded" : "failed"; result.outcome = control === "stop" ? "completed" : "failed"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
       }
     }
     const until = shouldRun(step.until, artifacts);
     loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: until ? "succeeded" : "failed", until });
-    result.status = until ? "succeeded" : "running"; await store.save(run);
+    result.status = until ? "succeeded" : "running";
+    if (until) result.outcome = "completed";
+    await store.save(run);
     if (until) { return "continue"; }
   }
-  loopResult.exhausted = true; result.status = "failed"; result.error = `${recordId} exhausted its ${maxIterations} iteration limit`; result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
+  loopResult.exhausted = true; result.status = "failed"; result.outcome = "failed"; result.error = `${recordId} exhausted its ${maxIterations} iteration limit`; result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
 }
 
 function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): boolean | undefined {
   if (!step.stopWhen) return undefined;
   const stopped = shouldRun(step.stopWhen, artifacts);
   result.status = stopped ? "failed" : "succeeded";
+  if (stopped) result.outcome = "stop_condition_triggered";
   if (stopped) result.message = step.stopMessage ?? `Stopped by ${step.id}`;
   return stopped;
+}
+
+function normalizeStepOutput(value: string, format: "text" | "single-line" | "lines" | "json" | undefined): string | string[] {
+  if (format === "lines") return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (format === "single-line") return value.trim().split(/\r?\n/)[0] ?? "";
+  return value;
+}
+
+function resolveWorkflowOutputs(workflow: Workflow, artifacts: ArtifactMap): Record<string, unknown> {
+  const outputs: Record<string, unknown> = {};
+  for (const [name, expression] of Object.entries(workflow.outputs ?? {})) {
+    const value = expression.split(/\s*\|\|\s*/).map((candidate) => lookup(candidate.trim(), artifacts)).find((candidate) => candidate !== undefined && candidate !== "");
+    if (value !== undefined) outputs[name] = value;
+  }
+  return outputs;
 }
 
 function normalizeSingleLine(value: string): string {

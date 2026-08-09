@@ -14,6 +14,10 @@ export function validateWorkflow(w: Workflow): void {
   if (!w || typeof w.name !== "string") throw new Error("Workflow requires a name");
   if (w.description !== undefined && typeof w.description !== "string") throw new Error("Workflow description must be a string");
   if (!Array.isArray(w.steps) || w.steps.length === 0) throw new Error("Workflow requires at least one step");
+  if (w.outputs !== undefined) {
+    if (!w.outputs || typeof w.outputs !== "object" || Array.isArray(w.outputs)) throw new Error("Workflow outputs must be an object");
+    for (const [name, expression] of Object.entries(w.outputs)) if (typeof expression !== "string" || !expression.trim()) throw new Error(`Invalid output expression for ${name}`);
+  }
   if (w.inputs !== undefined) {
     if (!w.inputs || typeof w.inputs !== "object" || Array.isArray(w.inputs)) throw new Error("Workflow inputs must be an object");
     for (const [name, definition] of Object.entries(w.inputs)) {
@@ -48,7 +52,8 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
     if (step.type === "agent" && typeof step.prompt !== "string" || step.type === "agent" && !step.prompt) throw new Error(`${step.id}: agent requires prompt`);
-    if (step.type === "agent" && step.outputFormat !== undefined && step.outputFormat !== "text" && step.outputFormat !== "single-line" && step.outputFormat !== "json") throw new Error(`${step.id}: unsupported output format`);
+    if (step.type === "agent" && step.outputFormat !== undefined && !["text", "single-line", "json"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported agent output format`);
+    if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);
     if (step.type === "shell" && typeof step.command !== "string" || step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);
     if (step.type === "shell" && step.shell !== undefined && typeof step.shell !== "string") throw new Error(`${step.id}: shell must be a string`);
     if ((step.type === "shell" || step.type === "exec") && step.output !== undefined && step.output !== "always" && step.output !== "failure" && step.output !== "never") throw new Error(`${step.id}: output must be always, failure, or never`);
