@@ -7,6 +7,7 @@ A small, declarative workflow harness for coding agents, powered by the Pi SDK.
 ```bash
 npm install
 npm run dev -- --task "add input validation to the API"
+# The default code-change flow defines `task` as an input; other flows expose their own inputs.
 ```
 
 Configure model profiles with provider/model IDs:
@@ -32,11 +33,22 @@ npm run dev -- help code-change
 # Paths also work: npm run dev -- help flows/git-commit.flow
 ```
 
-Workflow options come from the workflow's `inputs` definition: use `--<input> <value>` for string inputs and `--<input>` for boolean inputs. Inputs can include a `description` and `default` to document their usage.
+There is no global task argument. Workflow options come from the workflow's `inputs` definition: use `--<input> <value>` for string inputs and `--<input>` for boolean inputs. For example, `code-change.flow` defines `task`, while `git-commit.flow` defines `msg`, `push`, and other inputs. Inputs can include a `description` and `default` to document their usage.
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
 Runs are persisted under `.flow/runs/`. Process steps always produce `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents. A fired `stopWhen` is shown as a failed step (`✗`) but terminates the run successfully. A non-fired `stopWhen` is shown as succeeded (`✓`), regardless of the guard command's exit status; command artifacts still expose the original `exit_code` and `succeeded` value.
+
+## Pi integration
+
+The built extension turns flows into tools inside a persistent Pi session:
+
+```bash
+npm run build
+pi -e ./dist/pi-extension.js
+```
+
+The Pi agent can use `list_flows`, `run_flow`, and `validate_flow`. It receives compact flow results while detailed run state remains under `.flow/runs/`. The existing `flow` CLI remains available for headless runs.
 
 ## Process steps
 

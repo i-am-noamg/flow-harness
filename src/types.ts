@@ -47,6 +47,8 @@ export interface LoopResult {
   maxIterations: number;
   exhausted: boolean;
 }
+export type ProcessOutput = { stream: "stdout" | "stderr"; data: string };
+
 export interface WorkspaceSnapshot {
   fingerprint: string;
   files: Record<string, string>;
