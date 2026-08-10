@@ -95,8 +95,8 @@ export function summarizeRun(run: RunState, cwd: string): RunSummary {
   const steps = run.steps.map((step) => {
     const result = step.result as any;
     for (const file of result?.changed_files ?? []) changedFiles.add(file);
-    if (step.status === "failed" || step.outcome === "process_failed_continued") failures.push({ id: step.id, error: step.error, exit_code: result?.exit_code, stdout: excerpt(result?.stdout), stderr: excerpt(result?.stderr) });
-    return { id: step.id, type: step.type, status: step.status, outcome: step.outcome, exit_code: result?.exit_code, process_succeeded: result?.succeeded, changed: result?.changed, message: step.message, error: step.error };
+    if (step.status === "failed") failures.push({ id: step.id, error: step.error, exit_code: result?.exit_code, signal: result?.signal, timed_out: result?.timed_out, stdout: excerpt(result?.stdout), stderr: excerpt(result?.stderr) });
+    return { id: step.id, type: step.type, status: step.status, control: step.control, exit_code: result?.exit_code, signal: result?.signal, timed_out: result?.timed_out, changed: result?.changed, message: step.message, error: step.error };
   });
   return { run_id: run.id, flow: run.workflow, status: run.status, steps, outputs: run.outputs ?? {}, failures, changed_files: [...changedFiles].sort(), run_file: relative(cwd, join(cwd, ".flow", "runs", `${run.id}.json`)) };
 }

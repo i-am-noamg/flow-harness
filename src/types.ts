@@ -26,7 +26,8 @@ export interface CommandResult {
   stdout: string;
   stderr: string;
   exit_code: number;
-  succeeded: boolean;
+  signal?: string;
+  timed_out: boolean;
   duration: number;
 }
 export interface AgentResult {
@@ -64,7 +65,7 @@ export interface StepResult {
   result?: CommandResult | AgentResult | LoopResult;
   error?: string;
   message?: string;
-  outcome?: "completed" | "failed" | "skipped" | "stop_condition_triggered" | "process_failed_continued";
+  control?: "continue" | "stop";
 }
 export interface RunState {
   id: string;
@@ -81,9 +82,9 @@ export interface RunSummary {
   run_id: string;
   flow: string;
   status: RunState["status"];
-  steps: Array<{ id: string; type: StepType; status: StepResult["status"]; outcome?: StepResult["outcome"]; exit_code?: number; process_succeeded?: boolean; changed?: boolean; message?: string; error?: string }>;
+  steps: Array<{ id: string; type: StepType; status: StepResult["status"]; control?: StepResult["control"]; exit_code?: number; signal?: string; timed_out?: boolean; changed?: boolean; message?: string; error?: string }>;
   changed_files: string[];
   outputs: Record<string, unknown>;
-  failures: Array<{ id: string; error?: string; exit_code?: number; stdout?: string; stderr?: string }>;
+  failures: Array<{ id: string; error?: string; exit_code?: number; signal?: string; timed_out?: boolean; stdout?: string; stderr?: string }>;
   run_file: string;
 }

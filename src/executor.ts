@@ -21,17 +21,39 @@ function render(value: string, artifacts: ArtifactMap): string {
   return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, key) => String(lookup(key.trim(), artifacts) ?? ""));
 }
 
+type TriState = true | false | undefined;
+
 function shouldRun(expression: string | undefined, artifacts: ArtifactMap): boolean {
   if (!expression) return true;
-  return expression.split(/\s*\|\|\s*/).some((alternative) => alternative.replace(/[()]/g, "").split(/\s*&&\s*/).every((part) => {
-    const match = part.trim().match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
-    if (!match) throw new Error(`Unsupported condition: ${expression}`);
-    const actual = lookup(match[1], artifacts);
-    let expected: any = match[3].trim().replace(/^['"]|['"]$/g, "");
-    if (expected === "true") expected = true; if (expected === "false") expected = false;
-    if (/^-?\d+(\.\d+)?$/.test(expected)) expected = Number(expected);
-    return match[2] === "==" ? actual === expected : actual !== expected;
-  }));
+  return evaluateCondition(expression, artifacts) === true;
+}
+
+function evaluateCondition(expression: string, artifacts: ArtifactMap): TriState {
+  let sawUnknown = false;
+  for (const alternative of expression.split(/\s*\|\|\s*/)) {
+    let alternativeUnknown = false;
+    let alternativeResult: TriState = true;
+    for (const part of alternative.replace(/[()]/g, "").split(/\s*&&\s*/)) {
+      const value = evaluateComparison(part.trim(), artifacts);
+      if (value === false) { alternativeResult = false; break; }
+      if (value === undefined) alternativeUnknown = true;
+    }
+    if (alternativeResult === true && !alternativeUnknown) return true;
+    if (alternativeResult === true && alternativeUnknown) sawUnknown = true;
+  }
+  return sawUnknown ? undefined : false;
+}
+
+function evaluateComparison(expression: string, artifacts: ArtifactMap): TriState {
+  const match = expression.match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
+  if (!match) throw new Error(`Unsupported condition: ${expression}`);
+  const actual = lookup(match[1], artifacts);
+  if (actual === undefined) return undefined;
+  let expected: unknown = match[3].trim().replace(/^['\"]|['\"]$/g, "");
+  if (expected === "true") expected = true;
+  else if (expected === "false") expected = false;
+  else if (/^-?\d+(\.\d+)?$/.test(String(expected))) expected = Number(expected);
+  return match[2] === "==" ? actual === expected : actual !== expected;
 }
 
 export async function execute(options: ExecuteOptions): Promise<RunState> {
@@ -61,8 +83,8 @@ type StepControl = "continue" | "stop" | "fail";
 
 async function executeStep(step: Step, recordId: string, run: RunState, store: RunStore, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
   if (!shouldRun(step.when, artifacts)) {
-    run.steps.push({ id: recordId, type: step.type, status: "skipped", outcome: "skipped", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
-    artifacts[recordId] = { status: "skipped", succeeded: false, output: "" };
+    run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
+    artifacts[recordId] = { status: "skipped", output: "" };
     artifacts[`${recordId}.output`] = "";
     if (!quiet) console.log(`↷ ${recordId} skipped`); await store.save(run); return "continue";
   }
@@ -93,15 +115,20 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       artifacts[step.id] = stepArtifact; artifacts[`${step.id}.output`] = normalizedOutput;
       const stopped = applyStopWhen(step, result, artifacts);
       if (step.stopWhen) {
-        result.outcome = stopped ? "stop_condition_triggered" : (r.succeeded ? "completed" : "process_failed_continued");
+        result.status = "succeeded";
+        result.control = stopped ? "stop" : "continue";
+        stepArtifact.status = result.status;
+        stepArtifact.control = result.control;
         result.finished_at = new Date().toISOString(); await store.save(run);
         if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId}`);
         return stopped ? "stop" : "continue";
       }
-      result.status = r.succeeded ? "succeeded" : "failed";
-      result.outcome = r.succeeded ? "completed" : "failed";
+      result.status = r.exit_code === 0 ? "succeeded" : "failed";
+      result.control = "continue";
+      stepArtifact.status = result.status;
+      stepArtifact.control = result.control;
       result.finished_at = new Date().toISOString(); await store.save(run);
-      if (!quiet) console.log(r.succeeded ? `✓ ${recordId}` : `✗ ${recordId} (exit ${r.exit_code})`);
+      if (!quiet) console.log(r.exit_code === 0 ? `✓ ${recordId}` : `✗ ${recordId} (exit ${r.exit_code})`);
       return "continue";
     }
     const agentStep = step as AgentStep;
@@ -120,13 +147,15 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     } else for (const output of agentStep.outputs ?? []) artifacts[output] = agentResult.output;
     for (const output of agentStep.outputs ?? []) (artifacts[agentStep.id] as Record<string, unknown>)[output] = artifacts[output];
     result.status = "succeeded";
-    result.outcome = "completed";
+    result.control = "continue";
     const stopped = applyStopWhen(agentStep, result, artifacts);
+    (artifacts[agentStep.id] as Record<string, unknown>).status = result.status;
+    (artifacts[agentStep.id] as Record<string, unknown>).control = result.control;
     result.finished_at = new Date().toISOString(); await store.save(run);
     if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId}`);
     return stopped ? "stop" : "continue";
   } catch (error) {
-    result.status = "failed"; result.outcome = "failed"; result.error = error instanceof Error ? error.message : String(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
+    result.status = "failed"; result.error = error instanceof Error ? error.message : String(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
   }
 }
 
@@ -140,24 +169,24 @@ async function executeLoop(step: LoopStep, result: StepResult, recordId: string,
       const control = await executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet);
       if (control !== "continue") {
         loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
-        result.status = control === "stop" ? "succeeded" : "failed"; result.outcome = control === "stop" ? "completed" : "failed"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
+        result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
       }
     }
     const until = shouldRun(step.until, artifacts);
     loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: until ? "succeeded" : "failed", until });
     result.status = until ? "succeeded" : "running";
-    if (until) result.outcome = "completed";
+    result.control = "continue";
     await store.save(run);
     if (until) { return "continue"; }
   }
-  loopResult.exhausted = true; result.status = "failed"; result.outcome = "failed"; result.error = `${recordId} exhausted its ${maxIterations} iteration limit`; result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
+  loopResult.exhausted = true; result.status = "failed"; result.control = "continue"; result.error = `${recordId} exhausted its ${maxIterations} iteration limit`; result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
 }
 
 function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): boolean | undefined {
   if (!step.stopWhen) return undefined;
   const stopped = shouldRun(step.stopWhen, artifacts);
-  result.status = stopped ? "failed" : "succeeded";
-  if (stopped) result.outcome = "stop_condition_triggered";
+  result.status = "succeeded";
+  result.control = stopped ? "stop" : "continue";
   if (stopped) result.message = step.stopMessage ?? `Stopped by ${step.id}`;
   return stopped;
 }
@@ -171,10 +200,25 @@ function normalizeStepOutput(value: string, format: "text" | "single-line" | "li
 function resolveWorkflowOutputs(workflow: Workflow, artifacts: ArtifactMap): Record<string, unknown> {
   const outputs: Record<string, unknown> = {};
   for (const [name, expression] of Object.entries(workflow.outputs ?? {})) {
-    const value = expression.split(/\s*\|\|\s*/).map((candidate) => lookup(candidate.trim(), artifacts)).find((candidate) => candidate !== undefined && candidate !== "");
+    const values = expression.split(/\s*\|\|\s*/).map((candidate) => evaluateValue(candidate.trim(), artifacts));
+    const value = values.find((candidate) => Boolean(candidate)) ?? values.find((candidate) => candidate !== undefined && candidate !== "");
     if (value !== undefined) outputs[name] = value;
   }
   return outputs;
+}
+
+function evaluateValue(expression: string, artifacts: ArtifactMap): unknown {
+  if (expression === "true") return true;
+  if (expression === "false") return false;
+  const comparison = expression.match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
+  if (!comparison) return lookup(expression, artifacts);
+  const actual = lookup(comparison[1], artifacts);
+  if (actual === undefined) return undefined;
+  let expected: unknown = comparison[3].trim().replace(/^['"]|['"]$/g, "");
+  if (expected === "true") expected = true;
+  else if (expected === "false") expected = false;
+  else if (/^-?\d+(\.\d+)?$/.test(String(expected))) expected = Number(expected);
+  return comparison[2] === "==" ? actual === expected : actual !== expected;
 }
 
 function normalizeSingleLine(value: string): string {

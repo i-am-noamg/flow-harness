@@ -29,10 +29,11 @@ inputs:
 
 outputs:
   commit_message: msg || generated_commit_message
+  committed: commit_details.status == succeeded
   commit_hash: commit_details.commit_hash
   branch: current_branch.branch
   committed_files: commit_details.committed_files
-  pushed: push.succeeded
+  pushed: push.status == succeeded || force_push.status == succeeded
 
 steps:
   - id: add_all
@@ -106,7 +107,7 @@ steps:
     args: [show, --format=%H, --name-only, --no-renames, HEAD]
     outputFormat: lines
     outputs: [commit_hash, committed_files]
-    when: commit_supplied.succeeded == true || commit_generated.succeeded == true
+    when: commit_supplied.exit_code == 0 || commit_generated.exit_code == 0
 
   - id: current_branch
     type: exec
@@ -114,7 +115,7 @@ steps:
     args: [branch, --show-current]
     outputFormat: single-line
     outputs: [branch]
-    when: commit_supplied.succeeded == true || commit_generated.succeeded == true
+    when: commit_supplied.exit_code == 0 || commit_generated.exit_code == 0
 
   - id: push
     type: exec

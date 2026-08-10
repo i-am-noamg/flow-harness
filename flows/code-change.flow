@@ -13,7 +13,8 @@ inputs:
 outputs:
   changed: implement.changed
   changed_files: implement.changed_files
-  tests_passed: test.succeeded
+  tests_passed: test.exit_code == 0
+  tests_status: test.status
 
 steps:
   - id: inspect
@@ -42,7 +43,7 @@ steps:
   - id: test_and_repair
     type: loop
     maxIterations: 5
-    until: test.succeeded == true
+    until: test.exit_code == 0
     when: implement.changed == true
     steps:
       - id: test

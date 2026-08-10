@@ -37,7 +37,7 @@ There is no global task argument. Workflow options come from the workflow's `inp
 
 `--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
 
-Runs are persisted as one complete JSON record under `.flow/runs/<run-id>.json`. Process steps preserve `output`, `stdout`, `stderr`, `exit_code`, `succeeded`, and `duration`; workflow inputs control what is handed to agents. A fired `stopWhen` is shown as a failed step (`✗`) but terminates the run successfully; its outcome is `stop_condition_triggered`. A non-fired `stopWhen` is shown as succeeded (`✓`) even when the guard command exits nonzero; its outcome is `process_failed_continued` and the original process result remains available. Workflows can declare public `outputs` mapped from step artifacts; these are returned to Pi without exposing routine raw logs.
+Runs are persisted as one complete JSON record under `.flow/runs/<run-id>.json`. Process steps preserve `output`, `stdout`, `stderr`, `exit_code`, `signal`, `timed_out`, and `duration`; workflow inputs control what is handed to agents. A `stopWhen` guard reports workflow `status: succeeded` and uses `control: stop` or `control: continue`; its underlying exit code remains available, but a nonzero guard exit is not itself a flow failure. Workflows can declare public `outputs` mapped from step artifacts; these are returned to Pi without exposing routine raw logs.
 
 ## Pi integration
 
@@ -52,12 +52,12 @@ The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate
 
 ## Flow outputs
 
-A workflow may declare its public outputs by mapping names to step artifacts. Only these named outputs are included in the compact Pi result; complete step evidence remains in the single run JSON file.
+A workflow may declare its public outputs by mapping names to step artifacts. The compact Pi result includes statuses, failures, changed files, and these named workflow values; complete step evidence remains in the single run JSON file.
 
 ```yaml
 outputs:
   commit_hash: commit_details.commit_hash
-  pushed: push.succeeded
+  pushed: push.status == succeeded || force_push.status == succeeded
 
 steps:
   - id: commit_details
@@ -99,7 +99,7 @@ Use a structured `loop` to retry a sequence until a condition is true:
 - id: test_and_repair
   type: loop
   maxIterations: 5
-  until: test.succeeded == true
+  until: test.exit_code == 0
   steps:
     - id: test
       type: exec
@@ -112,7 +112,7 @@ Use a structured `loop` to retry a sequence until a condition is true:
       writes: true
 ```
 
-The body runs sequentially and `until` is evaluated after each complete iteration. `maxIterations` defaults to 10 and must be a positive integer; exhausting it fails the loop and run. Loops may be nested, and declared step IDs must be unique across the workflow. Conditions and artifacts use logical child IDs (the latest iteration overwrites them), while persisted records use qualified IDs such as `test_and_repair[2].test`. Command failures can be recovered by later loop steps; agent failures and `stopWhen` failures terminate the run.
+The body runs sequentially and `until` is evaluated after each complete iteration. `maxIterations` defaults to 10 and must be a positive integer; exhausting it fails the loop and run. Loops may be nested, and declared step IDs must be unique across the workflow. Conditions and artifacts use logical child IDs (the latest iteration overwrites them), while persisted records use qualified IDs such as `test_and_repair[2].test`. Command failures can be recovered by later loop steps; agent failures fail the run, while a triggered `stopWhen` ends it successfully with `control: stop`.
 
 ## Git commits
 

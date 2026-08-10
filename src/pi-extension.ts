@@ -19,7 +19,7 @@ function catalogText(catalog: Awaited<ReturnType<typeof listFlows>>): string {
   return catalog.length ? catalog.map((flow) => `- ${flow.name}${flow.description ? `: ${flow.description}` : ""}${flow.inputs.length ? ` (inputs: ${flow.inputs.join(", ")})` : ""}${flow.outputs.length ? ` (outputs: ${flow.outputs.join(", ")})` : ""}`).join("\n") : "(none)";
 }
 function summaryText(summary: ReturnType<typeof summarizeRun>): string {
-  const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.outcome && step.outcome !== "completed" ? ` (${step.outcome})` : ""}`).join(", ");
+  const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.control && step.control !== "continue" ? ` (${step.control})` : ""}${step.exit_code !== undefined ? ` [exit ${step.exit_code}]` : ""}${step.timed_out ? " [timed out]" : ""}${step.signal ? ` [signal ${step.signal}]` : ""}`).join(", ");
   const outputs = Object.keys(summary.outputs).length ? `\nOutputs:\n${JSON.stringify(summary.outputs, null, 2)}` : "";
   const failures = summary.failures.length ? `\nFailures:\n${JSON.stringify(summary.failures, null, 2)}` : "";
   return `Flow ${summary.flow} ${summary.status}. Run ${summary.run_id}. Steps: ${steps}.${outputs}${failures}\nDetailed evidence: ${summary.run_file}; use inspect_flow_run when a requested fact is not present above.`;
