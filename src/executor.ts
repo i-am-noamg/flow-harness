@@ -160,7 +160,11 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       for (const output of agentStep.outputs ?? []) { if (typeof parsed[output] !== "string") throw new Error(`Agent JSON output is missing string field: ${output}`); artifacts[output] = parsed[output]; }
       if (agentStep.outputs?.includes("generated_commit_message") && !artifacts.generated_commit_message.trim()) throw new Error("Agent produced an empty generated commit message");
     } else for (const output of agentStep.outputs ?? []) artifacts[output] = agentResult.output;
-    for (const output of agentStep.outputs ?? []) (artifacts[agentStep.id] as Record<string, unknown>)[output] = artifacts[output];
+    // An output may intentionally have the same name as the step ID. In that
+    // case the alias is a scalar, not the step artifact object.
+    if (artifacts[agentStep.id] && typeof artifacts[agentStep.id] === "object") {
+      for (const output of agentStep.outputs ?? []) (artifacts[agentStep.id] as Record<string, unknown>)[output] = artifacts[output];
+    }
     result.status = "succeeded";
     result.control = "continue";
     const stopped = applyStopWhen(agentStep, result, artifacts);
