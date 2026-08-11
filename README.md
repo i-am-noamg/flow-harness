@@ -91,6 +91,8 @@ Use `shell` for pipes, redirects, chaining, globbing, or other shell syntax:
 
 A shell can be selected explicitly with `shell: bash` or `shell: sh`. Set `output` on a shell or exec step to control CLI output: `always` (default) streams output, `failure` buffers it and prints only when the command fails, and `never` suppresses it. Output is always retained in the run JSON.
 
+Consecutive steps can run concurrently with `parallel: true`. A group starts at a marked step and includes consecutive marked steps; unmarked steps are barriers. The group completes before the next unmarked step runs. Steps that depend on another step's artifacts must remain sequential.
+
 ## Loops
 
 Use a structured `loop` to retry a sequence until a condition is true:

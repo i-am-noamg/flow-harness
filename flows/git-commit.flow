@@ -51,11 +51,13 @@ steps:
 
   - id: status
     type: exec
+    parallel: true
     program: git
     args: [status, --short]
 
   - id: unstaged_diff
     type: exec
+    parallel: true
     program: git
     args: [diff]
     output: failure
@@ -63,6 +65,7 @@ steps:
 
   - id: staged_diff
     type: exec
+    parallel: true
     program: git
     args: [diff, --cached]
     output: failure
@@ -103,6 +106,7 @@ steps:
 
   - id: commit_details
     type: exec
+    parallel: true
     program: git
     args: [show, --format=%H, --name-only, --no-renames, HEAD]
     outputFormat: lines
@@ -111,6 +115,7 @@ steps:
 
   - id: current_branch
     type: exec
+    parallel: true
     program: git
     args: [branch, --show-current]
     outputFormat: single-line

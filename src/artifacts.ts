@@ -4,10 +4,14 @@ import type { RunState } from "./types.js";
 
 export class RunStore {
   readonly dir: string;
+  private pending: Promise<void> = Promise.resolve();
   constructor(root: string) { this.dir = join(root, ".flow", "runs"); }
   async save(run: RunState): Promise<void> {
-    await mkdir(this.dir, { recursive: true });
-    await writeFile(join(this.dir, `${run.id}.json`), JSON.stringify(run, null, 2));
+    this.pending = this.pending.then(async () => {
+      await mkdir(this.dir, { recursive: true });
+      await writeFile(join(this.dir, `${run.id}.json`), JSON.stringify(run, null, 2));
+    });
+    await this.pending;
   }
 }
 

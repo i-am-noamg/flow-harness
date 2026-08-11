@@ -51,6 +51,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
+    if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
     if (step.type === "agent" && typeof step.prompt !== "string" || step.type === "agent" && !step.prompt) throw new Error(`${step.id}: agent requires prompt`);
     if (step.type === "agent" && step.outputFormat !== undefined && !["text", "single-line", "json"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported agent output format`);
     if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);
@@ -60,7 +61,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.type === "exec" && typeof step.program !== "string" || step.type === "exec" && !step.program) throw new Error(`${step.id}: exec requires program`);
     if (step.type === "exec" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: exec args must be strings`);
     if (step.type === "loop") {
-      const allowed = new Set(["id", "type", "when", "inputs", "outputs", "stopWhen", "stopMessage", "steps", "until", "maxIterations"]);
+      const allowed = new Set(["id", "type", "when", "inputs", "outputs", "stopWhen", "stopMessage", "parallel", "steps", "until", "maxIterations"]);
       const unsupported = Object.keys(raw as object).find((key) => !allowed.has(key));
       if (unsupported) throw new Error(`${step.id}: unsupported loop property: ${unsupported}`);
       if (typeof step.until !== "string" || !step.until.trim()) throw new Error(`${step.id}: loop requires until`);
