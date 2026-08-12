@@ -31,6 +31,30 @@ export function validateWorkflow(w: Workflow): void {
   validateSteps(w.steps, ids, "steps");
 }
 
+function validateParallelBatches(steps: unknown[], path: string): void {
+  for (let index = 0; index < steps.length;) {
+    if (!(steps[index] as Partial<Step>)?.parallel) { index++; continue; }
+    const batch: Partial<Step>[] = [];
+    while (index < steps.length && (steps[index] as Partial<Step>)?.parallel) batch.push(steps[index] as Partial<Step>), index++;
+    const ids = new Set(batch.map((step) => step.id));
+    const outputs = new Set<string>();
+    for (const step of batch) {
+      for (const output of step.outputs ?? []) {
+        if (outputs.has(output)) throw new Error(`${path}: parallel steps cannot share output name: ${output}`);
+        outputs.add(output);
+      }
+      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, prompt: (step as any).prompt });
+      for (const input of step.inputs ?? []) {
+        const root = input.split(".")[0];
+        if (ids.has(root)) throw new Error(`${step.id}: parallel step cannot depend on sibling artifact: ${root}`);
+      }
+      for (const match of text.matchAll(/(?:\{\{\s*)?([A-Za-z_][\w-]*)(?:\.|\s*\}\})/g)) {
+        if (ids.has(match[1])) throw new Error(`${step.id}: parallel step cannot depend on sibling artifact: ${match[1]}`);
+      }
+    }
+  }
+}
+
 function validateCondition(expression: string, id: string, field: string): void {
   for (const alternative of expression.split(/\s*\|\|\s*/)) {
     for (const part of alternative.replace(/[()]/g, "").split(/\s*&&\s*/)) {
@@ -41,6 +65,7 @@ function validateCondition(expression: string, id: string, field: string): void 
 
 function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts steps is Step[] {
   if (!Array.isArray(steps) || steps.length === 0) throw new Error(`${path} must contain at least one step`);
+  validateParallelBatches(steps, path);
   for (const [index, raw] of steps.entries()) {
     const step = raw as Partial<Step>;
     const stepPath = `${path}[${index}]`;
@@ -52,6 +77,10 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
     if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
+    if (step.parallel && step.type === "loop") throw new Error(`${step.id}: loops cannot run in parallel`);
+    if (step.parallel && step.type === "shell") throw new Error(`${step.id}: shell steps cannot run in parallel`);
+    if (step.parallel && step.type === "agent" && step.writes) throw new Error(`${step.id}: writing agents cannot run in parallel`);
+    if (step.parallel && step.stopWhen) throw new Error(`${step.id}: stopWhen steps cannot run in parallel`);
     if (step.type === "agent" && typeof step.prompt !== "string" || step.type === "agent" && !step.prompt) throw new Error(`${step.id}: agent requires prompt`);
     if (step.type === "agent" && step.outputFormat !== undefined && !["text", "single-line", "json"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported agent output format`);
     if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { runAgent } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
-import { RunStore, makeRunId } from "./artifacts.js";
+import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
 import type { AgentStep, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
@@ -64,7 +64,7 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   const artifacts: ArtifactMap = { ...(options.inputs ?? {}) };
   await store.save(run);
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
-  const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet));
+  const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet), { run, store, artifacts, root, cwd, quiet });
   if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); await store.save(run); return run; }
   const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
   const failed = run.steps.some((result) => {
@@ -78,9 +78,10 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
 }
 
 type StepControl = "continue" | "stop" | "fail";
+type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean };
 
-/** Run consecutive steps marked parallel together; unmarked steps remain barriers. */
-async function executeSteps(steps: Step[], execute: (step: Step) => Promise<StepControl>): Promise<StepControl> {
+/** Run consecutive marked steps with isolated artifacts and coordinator-owned persistence. */
+async function executeSteps(steps: Step[], execute: (step: Step) => Promise<StepControl>, context?: ExecutionContext): Promise<StepControl> {
   for (let index = 0; index < steps.length;) {
     if (!steps[index].parallel) {
       const control = await execute(steps[index++]);
@@ -89,14 +90,30 @@ async function executeSteps(steps: Step[], execute: (step: Step) => Promise<Step
     }
     const batch: Step[] = [];
     while (index < steps.length && steps[index].parallel) batch.push(steps[index++]);
-    const controls = await Promise.all(batch.map(execute));
+    const results = context
+      ? await Promise.all(batch.map((step) => executeParallelStep(step, context)))
+      : await Promise.all(batch.map(async (step) => ({ control: await execute(step), steps: [], artifacts: {} as ArtifactMap })));
+    for (const result of results) {
+      context?.run.steps.push(...result.steps);
+      if (context) Object.assign(context.artifacts, result.artifacts);
+    }
+    if (context) await context.store.save(context.run);
+    const controls = results.map((result) => result.control);
     if (controls.includes("fail")) return "fail";
     if (controls.includes("stop")) return "stop";
   }
   return "continue";
 }
 
-async function executeStep(step: Step, recordId: string, run: RunState, store: RunStore, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
+async function executeParallelStep(step: Step, context: ExecutionContext): Promise<{ control: StepControl; steps: StepResult[]; artifacts: ArtifactMap }> {
+  const workerRun: RunState = { ...context.run, steps: [] };
+  const workerArtifacts: ArtifactMap = { ...context.artifacts };
+  const workerStore: RunStoreLike = { save: async () => undefined };
+  const control = await executeStep(step, step.id, workerRun, workerStore, workerArtifacts, context.root, context.cwd, true);
+  return { control, steps: workerRun.steps, artifacts: workerArtifacts };
+}
+
+async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
   if (!shouldRun(step.when, artifacts)) {
     run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
     artifacts[recordId] = { status: "skipped", output: "" };
@@ -168,23 +185,25 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     result.status = "succeeded";
     result.control = "continue";
     const stopped = applyStopWhen(agentStep, result, artifacts);
-    (artifacts[agentStep.id] as Record<string, unknown>).status = result.status;
-    (artifacts[agentStep.id] as Record<string, unknown>).control = result.control;
+    if (artifacts[agentStep.id] && typeof artifacts[agentStep.id] === "object") {
+      (artifacts[agentStep.id] as Record<string, unknown>).status = result.status;
+      (artifacts[agentStep.id] as Record<string, unknown>).control = result.control;
+    }
     result.finished_at = new Date().toISOString(); await store.save(run);
     if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId}`);
     return stopped ? "stop" : "continue";
   } catch (error) {
-    result.status = "failed"; result.error = error instanceof Error ? error.message : String(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
+    result.status = "failed"; result.error = formatStepError(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
   }
 }
 
-async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStore, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
+async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
   const maxIterations = step.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const loopResult: LoopResult = { iterations: [], until: step.until, maxIterations, exhausted: false };
   result.result = loopResult;
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     const started = new Date().toISOString();
-    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet));
+    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet), { run, store, artifacts, root, cwd, quiet });
     if (control !== "continue") {
       loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
       result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
@@ -206,6 +225,11 @@ function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): 
   result.control = stopped ? "stop" : "continue";
   if (stopped) result.message = step.stopMessage ?? `Stopped by ${step.id}`;
   return stopped;
+}
+
+function formatStepError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length > 2000 ? `${message.slice(0, 2000)}\n[error truncated; inspect step evidence for full output]` : message;
 }
 
 function normalizeStepOutput(value: string, format: "text" | "single-line" | "lines" | "json" | undefined): string | string[] {
