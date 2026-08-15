@@ -54,14 +54,7 @@ steps:
     parallel: true
     program: git
     args: [status, --short]
-
-  - id: unstaged_diff
-    type: exec
-    parallel: true
-    program: git
-    args: [diff]
-    output: failure
-    when: msg == ""
+    when: 'msg == "" || (new_branch == true && branch == "")'
 
   - id: staged_diff
     type: exec
@@ -69,13 +62,13 @@ steps:
     program: git
     args: [diff, --cached]
     output: failure
-    when: msg == ""
+    when: 'msg == "" || (new_branch == true && branch == "")'
 
   - id: generate_message
     type: agent
     model: cheap
     prompt: prompts/git-commit-message.md
-    inputs: [status.output, unstaged_diff.output, staged_diff.output, new_branch, branch]
+    inputs: [status.output, staged_diff.output, new_branch, branch]
     outputs: [generated_commit_message, generated_branch]
     outputFormat: json
     when: 'msg == "" || (new_branch == true && branch == "")'
@@ -126,10 +119,10 @@ steps:
     type: exec
     program: git
     args: [push, origin, HEAD]
-    when: push == true && force_with_lease == false
+    when: 'push == true && force_with_lease == false && (commit_supplied.exit_code == 0 || commit_generated.exit_code == 0)'
 
   - id: force_push
     type: exec
     program: git
     args: [push, --force-with-lease, origin, HEAD]
-    when: push == true && force_with_lease == true
+    when: 'push == true && force_with_lease == true && (commit_supplied.exit_code == 0 || commit_generated.exit_code == 0)'
