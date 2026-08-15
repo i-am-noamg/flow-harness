@@ -164,7 +164,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       return "continue";
     }
     const agentStep = step as AgentStep;
-    const prompt = await makePrompt(agentStep, root, artifacts);
+    const prompt = await makePrompt(agentStep, root, cwd, artifacts);
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet);
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
@@ -269,9 +269,9 @@ function normalizeSingleLine(value: string): string {
   return result;
 }
 
-async function makePrompt(step: AgentStep, root: string, artifacts: ArtifactMap): Promise<string> {
+async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap): Promise<string> {
   const workflowRelative = resolve(root, step.prompt);
-  const projectRelative = resolve(process.cwd(), step.prompt);
+  const projectRelative = resolve(cwd, step.prompt);
   const promptPath = existsSync(workflowRelative) ? workflowRelative : projectRelative;
   const prompt = await readFile(promptPath, "utf8");
   const inputs = (step.inputs ?? []).map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, artifacts), null, 2)}`).join("\n");

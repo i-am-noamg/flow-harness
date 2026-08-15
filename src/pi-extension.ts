@@ -2,22 +2,20 @@ import { resolve } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { inspectRun, listFlows, loadFlow, runFlow, summarizeRun, summarizeStep } from "./flow-service.js";
+import { formatFlowCatalog } from "./flow-catalog.js";
 
 const FlowRunParams = Type.Object({
-  flow: Type.String({ description: "Flow name (from flows/) or path to a .flow file" }),
+  flow: Type.String({ description: "Flow name from flows/ or an explicit .flow path; temporary flows under .flow/tmp/ require their path" }),
   inputs: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "Workflow-defined inputs" })),
   cwd: Type.Optional(Type.String({ description: "Repository directory; defaults to the current Pi directory" })),
 });
-const FlowParams = Type.Object({ flow: Type.String({ description: "Flow name or path to a .flow file" }) });
+const FlowParams = Type.Object({ flow: Type.String({ description: "Flow name from flows/ or an explicit .flow path; temporary flows under .flow/tmp/ require their path" }) });
 const InspectParams = Type.Object({
   run_id: Type.String({ description: "Flow run ID" }),
   step_id: Type.Optional(Type.String({ description: "Only inspect this step" })),
   fields: Type.Optional(Type.Array(Type.String({ description: "Top-level or result field to return" }))),
 });
 
-function catalogText(catalog: Awaited<ReturnType<typeof listFlows>>): string {
-  return catalog.length ? catalog.map((flow) => `- ${flow.name}${flow.description ? `: ${flow.description}` : ""}${flow.inputs.length ? ` (inputs: ${flow.inputs.join(", ")})` : ""}${flow.outputs.length ? ` (outputs: ${flow.outputs.join(", ")})` : ""}`).join("\n") : "(none)";
-}
 function summaryText(summary: ReturnType<typeof summarizeRun>): string {
   const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.control && step.control !== "continue" ? ` (${step.control})` : ""}${step.exit_code !== undefined ? ` [exit ${step.exit_code}]` : ""}${step.timed_out ? " [timed out]" : ""}${step.signal ? ` [signal ${step.signal}]` : ""}`).join(", ");
   const outputs = Object.keys(summary.outputs).length ? `\nOutputs:\n${JSON.stringify(summary.outputs, null, 2)}` : "";
@@ -28,13 +26,13 @@ function summaryText(summary: ReturnType<typeof summarizeRun>): string {
 export default function flowExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event) => {
     const catalog = await listFlows(event.systemPromptOptions.cwd);
-    return { systemPrompt: `${event.systemPrompt}\n\nFlow guidance: Prefer run_flow for requests matching an available workflow. Available workflows:\n${catalogText(catalog)}\nPass values through declared workflow inputs; do not assume a universal task field. Use validate_flow after editing a flow. Treat flow results as evidence, and use inspect_flow_run before answering factual questions about files, commits, logs, or other details omitted from the compact result. Do not infer omitted details.` };
+    return { systemPrompt: `${event.systemPrompt}\n\nFlow coordination:\nA flow is a declarative workflow made of explicit agent and process steps. Flows are useful when work is repeatable and benefits from explicit orchestration for reliability, token efficiency, or future optimization. A temporary flow is also appropriate for one-off or session-specific work when orchestration would make the result more reliable or efficient. Trivial one-off actions can be done directly.\n\nPrefer a relevant existing flow. Existing flows may be edited or extended when that improves them or adds needed capabilities; do not change one merely as a side effect of completing an unrelated task. Creating or editing a flow is generally easy to revert, so proceed when the user's intent is clear. Before running a flow with permanent or hard-to-revert consequences, such as commits, pushes, destructive changes, or deployments, ask for approval unless the user explicitly requested that action. When the intended flow or change is unclear, ask the user before proceeding.\n\nTemporary flows live under .flow/tmp/ and are Git-ignored. Lifecycle: create .flow/tmp/<name>.flow; validate with validate_flow or flow validate .flow/tmp/<name>.flow; run with run_flow or flow run .flow/tmp/<name>.flow; optionally promote by moving or copying it to flows/<name>.flow, after checking any flow-local prompt references. Bare names resolve only under flows/; temporary flows must always use their explicit path.\n\n${formatFlowCatalog(catalog)}\nPass values through declared workflow inputs. Use validate_flow after creating or editing a flow. Treat flow results as evidence and do not infer omitted details; inspect a saved run when exact evidence is needed.` };
   });
 
   pi.registerTool({
     name: "run_flow",
     label: "Run flow",
-    description: "Run a deterministic workflow with declared inputs. Returns a compact result; use inspect_flow_run for detailed logs.",
+    description: "Run a declarative workflow with its declared inputs. Use a flows/ name or an explicit path for temporary .flow/tmp/ workflows. Returns its status, declared outputs, failures, changed files, and run ID.",
     parameters: FlowRunParams,
     async execute(_toolCallId, params, _signal, onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
@@ -58,14 +56,14 @@ export default function flowExtension(pi: ExtensionAPI): void {
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const flows = await listFlows(ctx.cwd);
-      return { content: [{ type: "text", text: catalogText(flows) }], details: { flows } };
+      return { content: [{ type: "text", text: formatFlowCatalog(flows) }], details: { flows } };
     },
   });
 
   pi.registerTool({
     name: "inspect_flow_run",
     label: "Inspect flow run",
-    description: "Inspect a saved flow run or one of its steps. Detailed output is truncated to protect context.",
+    description: "Inspect a saved flow run or a specific step. Returns saved run evidence; detailed output may be truncated to protect context.",
     parameters: InspectParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
@@ -92,7 +90,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "validate_flow",
     label: "Validate flow",
-    description: "Validate a flow before running or after editing it.",
+    description: "Validate a flow before running or after editing it; use an explicit .flow/tmp/ path for temporary workflows.",
     parameters: FlowParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
@@ -106,6 +104,6 @@ export default function flowExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("flows", {
     description: "List available flow workflows",
-    handler: async (_args, ctx) => ctx.ui.notify(catalogText(await listFlows(ctx.cwd)), "info"),
+    handler: async (_args, ctx) => ctx.ui.notify(formatFlowCatalog(await listFlows(ctx.cwd)), "info"),
   });
 }

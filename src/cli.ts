@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { defaultInputs, inputDefinition, inspectRun, listFlows, loadFlow, resolveFlowPath, resolveInputs, runFlow, summarizeStep } from "./flow-service.js";
+import { formatFlowCatalog } from "./flow-catalog.js";
 import type { Workflow, WorkflowInput } from "./types.js";
 
 function help(): void {
@@ -58,7 +59,7 @@ async function main(): Promise<void> {
     return;
   }
   if (args[0] === "list") {
-    for (const flow of await listFlows(cwd)) console.log(`${flow.name}${flow.description ? ` — ${flow.description}` : ""}${flow.outputs.length ? ` (outputs: ${flow.outputs.join(", ")})` : ""}`);
+    console.log(formatFlowCatalog(await listFlows(cwd)));
     return;
   }
   if (args[0] === "inspect") {

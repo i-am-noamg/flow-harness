@@ -50,6 +50,19 @@ pi -e ./dist/pi-extension.js
 
 The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate_flow`. Flow results contain statuses, declared outputs, failures, and changed files; routine raw logs remain in the run record and can be selected with `inspect_flow_run` using `step_id` and `fields`. The existing `flow` CLI remains available for headless runs. Shared run inspection is also available with `flow list` and `flow inspect <run-id> [--step <id>].
 
+## Temporary flows
+
+Temporary flows are Git-ignored and live under `.flow/tmp/`. Create and use one explicitly:
+
+```bash
+mkdir -p .flow/tmp
+# create .flow/tmp/<name>.flow
+flow validate .flow/tmp/<name>.flow
+flow run .flow/tmp/<name>.flow
+```
+
+Bare names resolve only under `flows/`, so temporary flows cannot be selected by name alone. Promote a useful one with `mv` or `cp` to `flows/<name>.flow`, then check any flow-local prompt references.
+
 ## Flow outputs
 
 A workflow may declare its public outputs by mapping names to step artifacts. The compact Pi result includes statuses, failures, changed files, and these named workflow values; complete step evidence remains in the single run JSON file.

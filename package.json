@@ -6,6 +6,10 @@
   "bin": {
     "flow": "dist/cli.js"
   },
+  "pi": {
+    "extensions": ["./dist/pi-extension.js"],
+    "skills": ["./skills"]
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",

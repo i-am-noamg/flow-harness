@@ -19,17 +19,31 @@ export function resolveFlowPath(reference: string, cwd: string): string {
 }
 
 export async function listFlows(cwd: string): Promise<FlowCatalogEntry[]> {
-  const directory = resolve(cwd, "flows");
-  if (!existsSync(directory)) return [];
-  const entries = await readdir(directory, { withFileTypes: true });
   const result: FlowCatalogEntry[] = [];
-  for (const entry of entries.filter((item) => item.isFile() && item.name.endsWith(".flow")).sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = join(directory, entry.name);
-    try {
-      const { workflow } = await loadWorkflow(path);
-      result.push({ name: entry.name.slice(0, -5), path, description: workflow.description, inputs: Object.keys(workflow.inputs ?? {}), outputs: Object.keys(workflow.outputs ?? {}) });
-    } catch {
-      result.push({ name: entry.name.slice(0, -5), path, inputs: [], outputs: [] });
+  const directories = [
+    { path: resolve(cwd, "flows"), temporary: false },
+    { path: resolve(cwd, ".flow", "tmp"), temporary: true },
+  ];
+  for (const directory of directories) {
+    if (!existsSync(directory.path)) continue;
+    const entries = await readdir(directory.path, { withFileTypes: true });
+    for (const entry of entries.filter((item) => item.isFile() && item.name.endsWith(".flow")).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(directory.path, entry.name);
+      const base = { name: entry.name.slice(0, -5), path, ...(directory.temporary ? { temporary: true } : {}) };
+      try {
+        const { workflow } = await loadWorkflow(path);
+        result.push({
+          ...base,
+          description: workflow.description,
+          inputs: Object.entries(workflow.inputs ?? {}).map(([name, raw]) => {
+            const definition = inputDefinition(raw);
+            return { name, type: definition.type, ...(definition.default !== undefined ? { default: definition.default } : {}), ...(definition.description ? { description: definition.description } : {}) };
+          }),
+          outputs: Object.keys(workflow.outputs ?? {}),
+        });
+      } catch {
+        result.push({ ...base, inputs: [], outputs: [] });
+      }
     }
   }
   return result;

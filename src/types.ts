@@ -77,7 +77,8 @@ export interface RunState {
   steps: StepResult[];
   outputs?: Record<string, unknown>;
 }
-export interface FlowCatalogEntry { name: string; path: string; description?: string; inputs: string[]; outputs: string[]; }
+export interface FlowInputSummary { name: string; type: WorkflowInput["type"]; default?: string | boolean; description?: string; }
+export interface FlowCatalogEntry { name: string; path: string; temporary?: boolean; description?: string; inputs: FlowInputSummary[]; outputs: string[]; }
 export interface RunSummary {
   run_id: string;
   flow: string;
