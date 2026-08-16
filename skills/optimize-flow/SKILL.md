@@ -11,7 +11,7 @@ Use a flow when work is repeatable and benefits from explicit orchestration for 
 
 ## Process
 
-1. Read the target `.flow` file, its prompts, relevant source/tests, and `AGENTS.md`.
+1. Read the target `.flow` file, its prompts, relevant harness source, and `AGENTS.md`.
 2. Inspect representative `.flow/runs/<run-id>.json` records. Use the run summary first, then inspect individual steps when needed.
 3. Establish a baseline:
    - run status and failure modes;
@@ -25,14 +25,16 @@ Use a flow when work is repeatable and benefits from explicit orchestration for 
    - opportunities to replace agentic work with reliable deterministic steps.
 4. Identify the smallest high-confidence improvement. Separate measured problems from hypotheses.
 5. Edit the flow, prompts, or implementation as appropriate. Keep user-configurable tradeoffs configurable; do not introduce arbitrary hard limits.
-6. Validate the change and compare a new run with the baseline when possible.
-7. Report the change, evidence, tradeoffs, and remaining uncertainty.
+6. After editing a flow, validate it using the `validate_flow` tool.
+7. Execute a representative run and compare it with the baseline when possible. Inspect the saved run evidence, including skipped and conditional steps; do not treat a successful run alone as proof that every branch worked.
+8. Report the change, evidence, tradeoffs, and remaining uncertainty.
 
 ## Review checklist
 
 ### Reliability
 
 - Are inputs, outputs, conditions, and step dependencies explicit?
+- Are conditional branches exercised independently when practical, including unknown and skipped artifacts? Use run evidence for workflow behavior.
 - Can an unknown artifact or command failure be mistaken for success?
 - Are retries bounded and does each retry change something relevant?
 - Is complete evidence retained in `.flow/runs/`?

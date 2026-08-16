@@ -29,19 +29,71 @@ function shouldRun(expression: string | undefined, artifacts: ArtifactMap): bool
 }
 
 function evaluateCondition(expression: string, artifacts: ArtifactMap): TriState {
+  return evaluateOr(expression.trim(), artifacts);
+}
+
+function evaluateOr(expression: string, artifacts: ArtifactMap): TriState {
+  const parts = splitTopLevel(expression, "||");
   let sawUnknown = false;
-  for (const alternative of expression.split(/\s*\|\|\s*/)) {
-    let alternativeUnknown = false;
-    let alternativeResult: TriState = true;
-    for (const part of alternative.replace(/[()]/g, "").split(/\s*&&\s*/)) {
-      const value = evaluateComparison(part.trim(), artifacts);
-      if (value === false) { alternativeResult = false; break; }
-      if (value === undefined) alternativeUnknown = true;
-    }
-    if (alternativeResult === true && !alternativeUnknown) return true;
-    if (alternativeResult === true && alternativeUnknown) sawUnknown = true;
+  for (const part of parts) {
+    const value = evaluateAnd(part, artifacts);
+    if (value === true) return true;
+    if (value === undefined) sawUnknown = true;
   }
   return sawUnknown ? undefined : false;
+}
+
+function evaluateAnd(expression: string, artifacts: ArtifactMap): TriState {
+  const parts = splitTopLevel(expression, "&&");
+  let sawUnknown = false;
+  for (const part of parts) {
+    const value = evaluatePrimary(part, artifacts);
+    if (value === false) return false;
+    if (value === undefined) sawUnknown = true;
+  }
+  return sawUnknown ? undefined : true;
+}
+
+function evaluatePrimary(expression: string, artifacts: ArtifactMap): TriState {
+  const unwrapped = unwrapParentheses(expression.trim());
+  return unwrapped === expression.trim()
+    ? evaluateComparison(unwrapped, artifacts)
+    : evaluateOr(unwrapped, artifacts);
+}
+
+function splitTopLevel(expression: string, operator: "&&" | "||"): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < expression.length; index++) {
+    const character = expression[index];
+    if (character === "(") depth++;
+    else if (character === ")") {
+      depth--;
+      if (depth < 0) throw new Error(`Unbalanced condition: ${expression}`);
+    }
+    if (depth === 0 && expression.startsWith(operator, index)) {
+      parts.push(expression.slice(start, index).trim());
+      start = index + operator.length;
+      index += operator.length - 1;
+    }
+  }
+  if (depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
+  parts.push(expression.slice(start).trim());
+  if (parts.some((part) => !part)) throw new Error(`Invalid condition: ${expression}`);
+  return parts;
+}
+
+function unwrapParentheses(expression: string): string {
+  if (!expression.startsWith("(") || !expression.endsWith(")")) return expression;
+  let depth = 0;
+  for (let index = 0; index < expression.length; index++) {
+    if (expression[index] === "(") depth++;
+    else if (expression[index] === ")") depth--;
+    if (depth === 0 && index < expression.length - 1) return expression;
+  }
+  if (depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
+  return expression.slice(1, -1).trim();
 }
 
 function evaluateComparison(expression: string, artifacts: ArtifactMap): TriState {

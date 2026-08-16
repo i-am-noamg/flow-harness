@@ -119,10 +119,10 @@ steps:
     type: exec
     program: git
     args: [push, origin, HEAD]
-    when: '(push == true && force_with_lease == false && commit_supplied.exit_code == 0) || (push == true && force_with_lease == false && commit_generated.exit_code == 0)'
+    when: 'push == true && force_with_lease == false && (commit_supplied.exit_code == 0 || commit_generated.exit_code == 0)'
 
   - id: force_push
     type: exec
     program: git
     args: [push, --force-with-lease, origin, HEAD]
-    when: '(push == true && force_with_lease == true && commit_supplied.exit_code == 0) || (push == true && force_with_lease == true && commit_generated.exit_code == 0)'
+    when: 'push == true && force_with_lease == true && (commit_supplied.exit_code == 0 || commit_generated.exit_code == 0)'
