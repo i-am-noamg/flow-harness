@@ -108,7 +108,7 @@ Consecutive read-only steps can run concurrently with `parallel: true`. A group 
 
 ## Agent context and usage
 
-Agent steps record provider-reported token usage in run evidence, including input, output, cache-read, cache-write, total tokens, and cost when available. Providers that support prompt caching report cache activity; unsupported or unreported fields remain zero.
+Agent steps record provider-reported token usage in run evidence, including input, output, cache-read, cache-write, total tokens, cache-hit rate, and cost when available. They also record the resolved provider/model, API, response IDs, raw stop reasons, error messages, thinking level, exact rendered prompt length, session context ID, turns, tool names/results/failures, retries, per-turn usage, and stop reasons. Run records aggregate usage, provider/API/model/context sets, tool metrics, agent metrics, and wall/step durations. Providers that support prompt caching report cache activity; unsupported or unreported fields remain zero.
 
 Sequential agent steps can share a Pi session with `context`. The first step creates the session and later steps continue it, allowing the provider to reuse its cached prefix and preserving the conversation context:
 

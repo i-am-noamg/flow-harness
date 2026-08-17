@@ -5,7 +5,7 @@ import { runExec, runShell } from "./command.js";
 import { createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
-import type { AgentStep, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
+import type { AgentStep, AgentUsage, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
 export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; }
@@ -119,7 +119,7 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
   const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions };
   const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions), context);
-  if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); await store.save(run); disposeAgentSessions(agentSessions); return run; }
+  if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); updateRunMetadata(run); await store.save(run); disposeAgentSessions(agentSessions); return run; }
   const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
   const failed = run.steps.some((result) => {
     const step = topLevelSteps.get(result.id);
@@ -127,7 +127,9 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   });
   run.status = failed ? "failed" : "succeeded";
   run.outputs = resolveWorkflowOutputs(workflow, artifacts);
-  run.finished_at = new Date().toISOString(); await store.save(run);
+  run.finished_at = new Date().toISOString();
+  updateRunMetadata(run);
+  await store.save(run);
   disposeAgentSessions(agentSessions);
   if (!quiet) console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`); return run;
 }
@@ -138,6 +140,63 @@ type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: Artifac
 function disposeAgentSessions(sessions: Map<string, AgentSessionHandle>): void {
   for (const handle of sessions.values()) handle.session.dispose?.();
   sessions.clear();
+}
+
+function updateRunMetadata(run: RunState): void {
+  const usage: AgentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  let hasUsage = false;
+  let step_duration_ms = 0;
+  let agent_steps = 0;
+  let turns = 0;
+  let tool_calls = 0;
+  let retries = 0;
+  const providers = new Set<string>();
+  const response_models = new Set<string>();
+  const contexts = new Set<string>();
+  const apis = new Set<string>();
+  const tool_names = new Set<string>();
+  let tool_failures = 0;
+  for (const step of run.steps) {
+    if (step.finished_at) step_duration_ms += Math.max(0, Date.parse(step.finished_at) - Date.parse(step.started_at));
+    const agentResult = step.result as any;
+    if (step.type === "agent" && agentResult) {
+      agent_steps++;
+      turns += agentResult.turns ?? 0;
+      tool_calls += agentResult.tool_calls ?? 0;
+      retries += agentResult.retries ?? 0;
+      if (agentResult.provider) providers.add(agentResult.provider);
+      if (agentResult.api) apis.add(agentResult.api);
+      if (agentResult.response_model) response_models.add(agentResult.response_model);
+      if (agentResult.context_id) contexts.add(agentResult.context_id);
+      for (const name of agentResult.tool_names ?? []) tool_names.add(name);
+      tool_failures += agentResult.tool_failures ?? 0;
+    }
+    const stepUsage = agentResult?.usage as AgentUsage | undefined;
+    if (!stepUsage) continue;
+    hasUsage = true;
+    usage.input += stepUsage.input;
+    usage.output += stepUsage.output;
+    usage.cacheRead += stepUsage.cacheRead;
+    usage.cacheWrite += stepUsage.cacheWrite;
+    usage.cacheWrite1h = (usage.cacheWrite1h ?? 0) + (stepUsage.cacheWrite1h ?? 0);
+    usage.reasoning = (usage.reasoning ?? 0) + (stepUsage.reasoning ?? 0);
+    usage.totalTokens += stepUsage.totalTokens;
+    if (stepUsage.cost) {
+      usage.cost ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+      usage.cost.input += stepUsage.cost.input;
+      usage.cost.output += stepUsage.cost.output;
+      usage.cost.cacheRead += stepUsage.cost.cacheRead;
+      usage.cost.cacheWrite += stepUsage.cost.cacheWrite;
+      usage.cost.total += stepUsage.cost.total;
+    }
+  }
+  if (hasUsage) {
+    const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
+    if (promptTokens > 0) usage.cache_hit_rate = usage.cacheRead / promptTokens;
+    run.usage = usage;
+  }
+  run.agent_metrics = { agent_steps, turns, tool_calls, retries, providers: [...providers].sort(), apis: [...apis].sort(), response_models: [...response_models].sort(), contexts: [...contexts].sort(), tool_names: [...tool_names].sort(), tool_failures };
+  run.metrics = { wall_duration_ms: Math.max(0, Date.parse(run.finished_at!) - Date.parse(run.started_at)), step_duration_ms };
 }
 
 /** Run consecutive marked steps with isolated artifacts and coordinator-owned persistence. */
@@ -233,7 +292,8 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       return "continue";
     }
     const agentStep = (selectedVariant ? { ...step, ...selectedVariant, id: step.id, variants: undefined } : step) as AgentStep;
-    const prompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow);
+    const renderedPrompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow);
+    const prompt = renderedPrompt.text;
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     let sharedSession: AgentSessionHandle | undefined;
     if (agentStep.context) {
@@ -244,7 +304,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
         agentSessions.set(agentStep.context, sharedSession);
       }
     }
-    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession);
+    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars);
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
     if (agentStep.outputFormat === "single-line") agentResult.output = normalizeSingleLine(agentResult.output);
@@ -360,11 +420,12 @@ function normalizeSingleLine(value: string): string {
   return result;
 }
 
-async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<string> {
+async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
   if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
   const promptPath = findPromptPath(step.prompt, root, cwd, workflowName);
   const prompt = await readFile(promptPath, "utf8");
+  const input_chars = Object.fromEntries((step.inputs ?? []).map((key) => [key, JSON.stringify(lookup(key, artifacts), null, 2)?.length ?? 0]));
   const inputs = (step.inputs ?? []).map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, artifacts), null, 2)}`).join("\n");
   const suffix = step.outputFormat === "single-line" || step.outputFormat === "json" ? "" : "\n\nOperate in the current repository. Return a concise summary of your work and decisions.";
-  return `${render(prompt, artifacts)}${inputs}${suffix}`;
+  return { text: `${render(prompt, artifacts)}${inputs}${suffix}`, path: promptPath, input_chars };
 }

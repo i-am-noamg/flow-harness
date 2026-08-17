@@ -46,14 +46,47 @@ export interface AgentUsage {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  cacheWrite1h?: number;
+  reasoning?: number;
   totalTokens: number;
+  cache_hit_rate?: number;
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+}
+export interface AgentTurnMetrics {
+  api?: string;
+  provider?: string;
+  model?: string;
+  response_model?: string;
+  response_id?: string;
+  stop_reason?: string;
+  raw_stop_reason?: string;
+  error_message?: string;
+  usage?: AgentUsage;
+  tool_names: string[];
 }
 export interface AgentResult {
   output: string;
   model?: string;
   duration: number;
   usage?: AgentUsage;
+  provider?: string;
+  api?: string;
+  response_model?: string;
+  raw_stop_reason?: string;
+  error_message?: string;
+  thinking_level?: string;
+  prompt_chars: number;
+  prompt_path: string;
+  input_chars: Record<string, number>;
+  context_id?: string;
+  turns: number;
+  tool_calls: number;
+  retries: number;
+  stop_reasons: string[];
+  tool_names: string[];
+  tool_results: number;
+  tool_failures: number;
+  turn_metrics: AgentTurnMetrics[];
   changed?: boolean;
   changed_files?: string[];
 }
@@ -88,6 +121,22 @@ export interface StepResult {
   variant?: string;
   control?: "continue" | "stop";
 }
+export interface RunMetrics {
+  wall_duration_ms: number;
+  step_duration_ms: number;
+}
+export interface RunAgentMetrics {
+  agent_steps: number;
+  turns: number;
+  tool_calls: number;
+  retries: number;
+  providers: string[];
+  apis: string[];
+  response_models: string[];
+  contexts: string[];
+  tool_names: string[];
+  tool_failures: number;
+}
 export interface RunState {
   id: string;
   workflow: string;
@@ -96,6 +145,9 @@ export interface RunState {
   finished_at?: string;
   status: "running" | "succeeded" | "failed";
   steps: StepResult[];
+  usage?: AgentUsage;
+  metrics?: RunMetrics;
+  agent_metrics?: RunAgentMetrics;
   outputs?: Record<string, unknown>;
 }
 export interface FlowInputSummary { name: string; type: WorkflowInput["type"]; default?: string | boolean; description?: string; }
