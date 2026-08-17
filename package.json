@@ -1,7 +1,26 @@
 {
   "name": "flow-harness",
   "version": "0.1.0",
+  "description": "A Pi-based declarative workflow harness for coding agents that adds determinism for faster, more reliable results using fewer tokens.",
   "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/i-am-noamg/flow-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/i-am-noamg/flow-harness/issues"
+  },
+  "homepage": "https://github.com/i-am-noamg/flow-harness#readme",
+  "keywords": [
+    "workflow",
+    "agent",
+    "coding-agent",
+    "pi",
+    "automation"
+  ],
   "bin": {
     "flow": "dist/flow-launcher.js"
   },
@@ -12,11 +31,19 @@
     "README.md"
   ],
   "pi": {
-    "extensions": ["./dist/pi-extension.js"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./dist/pi-extension.js"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
+    "prepack": "npm run build",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && node --import tsx --test test/*.test.ts"

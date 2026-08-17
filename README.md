@@ -1,10 +1,19 @@
 # flow
 
-A small, declarative workflow harness for coding agents, powered by the Pi SDK.
+Sprinkle some determinism on your agent for faster, more reliable results using fewer tokens.
+
+A declarative workflow harness for coding agents, powered by the Pi SDK.
 
 ## Install
 
-The package is currently installed from a checkout or local package path rather than from the public npm registry.
+Install the published package globally:
+
+```bash
+npm install --global flow-harness
+flow --help
+```
+
+For source development or before the first registry release:
 
 ```bash
 git clone https://github.com/i-am-noamg/flow-harness.git flow
@@ -14,7 +23,7 @@ npm run build
 npm link                         # optional: makes `flow` available globally
 ```
 
-Without `npm link`, run the local CLI with `npm run dev -- ...`. After linking, use `flow ...` from any repository. The build is required when using the compiled `flow` launcher after changing source files.
+Without `npm link`, run the local CLI with `npm run dev -- ...`. After linking, use `flow ...` from any repository. The `prepack` script rebuilds `dist/` automatically when creating the npm package.
 
 The package includes the Pi SDK and its `pi` executable. Configure Pi authentication/provider credentials as required by Pi. Model profiles are selected with provider/model IDs:
 
