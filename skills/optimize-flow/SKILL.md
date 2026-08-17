@@ -19,7 +19,7 @@ Use a flow when work is repeatable and benefits from explicit orchestration for 
    - repeated steps and repair iterations;
    - prompt/artifact sizes when recorded;
    - unnecessary model calls, tools, context, or output;
-   - model and tool choices relative to each step's difficulty;
+   - explicit `model` and `thinkingLevel` choices relative to each step's difficulty;
    - prompt accuracy, clarity, concision, and instruction conflicts;
    - parallel opportunities and dependency barriers;
    - opportunities to replace agentic work with reliable deterministic steps.

@@ -73,7 +73,7 @@ test("history must be boolean and belongs on loop-body steps", () => {
   }), /history must be a boolean/);
   assert.throws(() => validateWorkflow({
     name: "invalid-top-level-history",
-    steps: [{ id: "agent", type: "agent", prompt: "prompt.md", history: true }],
+    steps: [{ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", history: true }],
   }), /history belongs on loop-body steps/);
   assert.doesNotThrow(() => validateWorkflow({
     name: "valid-agent-history",
@@ -81,7 +81,7 @@ test("history must be boolean and belongs on loop-body steps", () => {
       id: "loop",
       type: "loop",
       until: "done == true",
-      steps: [{ id: "agent", type: "agent", prompt: "prompt.md", outputFormat: "json", outputs: ["x", "y", "z"], history: true }],
+      steps: [{ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", outputFormat: "json", outputs: ["x", "y", "z"], history: true }],
     }],
   }));
   assert.throws(() => validateWorkflow({

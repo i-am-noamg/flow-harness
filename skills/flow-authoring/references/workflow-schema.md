@@ -27,8 +27,8 @@ steps:
 ```yaml
 - id: inspect
   type: agent
-  model: cheap # optional profile or provider/model
-  thinkingLevel: medium # optional: off, minimal, low, medium, high, xhigh, or max
+  model: cheap # required profile or provider/model
+  thinkingLevel: medium # required: off, minimal, low, medium, high, xhigh, or max
   prompt: prompts/inspect.md
   writes: false # true when the agent may edit files
   tools: [read, grep, find, ls] # optional; when supported
@@ -77,6 +77,8 @@ Use `exec` for a program and argument list. Use `shell` only for pipes, redirect
       args: [test]
     - id: repair
       type: agent
+      model: cheap
+      thinkingLevel: medium
       prompt: prompts/repair.md
       writes: true
       when: tests.exit_code != 0

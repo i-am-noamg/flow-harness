@@ -158,17 +158,21 @@ Sequential agent steps can share a Pi session with `context`. The first step cre
 ```yaml
 - id: inspect
   type: agent
+  model: capable
+  thinkingLevel: low
   context: analysis
   prompt: inspect.md
 - id: summarize
   type: agent
+  model: capable
+  thinkingLevel: medium
   context: analysis
   prompt: plan.md
 ```
 
 Context groups must not be used by parallel agents. Sharing reuses one Pi agent session (rather than manually copying artifacts between independent sessions), so later prompts include the earlier conversation and providers can reuse their cached prefix. It is also a semantic choice: use it only when seeing earlier prompts and responses is useful.
 
-Agent steps may also define ordered `variants`, each with its own `when`, prompt, inputs, outputs, and optional model/context/thinking-level settings. The first matching variant runs and is recorded in the step evidence; if none match, the step is skipped. This keeps mutually exclusive agent behavior in one logical step.
+Agent steps may also define ordered `variants`, each with its own `when`, prompt, inputs, outputs, and explicit model/thinking-level settings (plus optional context). The first matching variant runs and is recorded in the step evidence; if none match, the step is skipped. This keeps mutually exclusive agent behavior in one logical step.
 
 Use `thinkingLevel` to request Pi's `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` level:
 
@@ -200,6 +204,8 @@ Use a structured `loop` to retry a sequence until a condition is true:
       args: [test]
     - id: repair
       type: agent
+      model: cheap
+      thinkingLevel: medium
       prompt: repair.md
       when: test.exit_code != 0
       writes: true

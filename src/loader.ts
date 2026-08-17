@@ -5,8 +5,14 @@ import type { Workflow, WorkflowInput, Step } from "./types.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
+function validateModel(value: unknown, path: string): void {
+  if (value === undefined || (typeof value === "string" && !value.trim())) throw new Error(`${path}: model is required`);
+  if (typeof value !== "string") throw new Error(`${path}: model must be a string`);
+}
+
 function validateThinkingLevel(value: unknown, path: string): void {
-  if (value !== undefined && (typeof value !== "string" || !THINKING_LEVELS.includes(value as typeof THINKING_LEVELS[number]))) {
+  if (value === undefined) throw new Error(`${path}: thinkingLevel is required`);
+  if (typeof value !== "string" || !THINKING_LEVELS.includes(value as typeof THINKING_LEVELS[number])) {
     throw new Error(`${path}: thinkingLevel must be one of ${THINKING_LEVELS.join(", ")}`);
   }
 }
@@ -89,7 +95,7 @@ function validateAgentVariants(step: Partial<Step>): void {
     if (typeof variant.when !== "string" || !variant.when.trim()) throw new Error(`${step.id}.${variant.id}: variant requires when`);
     validateCondition(variant.when, `${step.id}.${variant.id}`, "when");
     if (typeof variant.prompt !== "string" || !variant.prompt) throw new Error(`${step.id}.${variant.id}: variant requires prompt`);
-    if (variant.model !== undefined && typeof variant.model !== "string") throw new Error(`${step.id}.${variant.id}: model must be a string`);
+    validateModel(variant.model, `${step.id}.${variant.id}`);
     validateThinkingLevel(variant.thinkingLevel, `${step.id}.${variant.id}`);
     if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
     if (variant.context !== undefined && (typeof variant.context !== "string" || !variant.context.trim())) throw new Error(`${step.id}.${variant.id}: context must be a non-empty string`);
@@ -111,7 +117,10 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec" && step.type !== "loop") throw new Error(`${step.id}: unsupported type`);
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
     if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
-    if (step.type === "agent") validateThinkingLevel(step.thinkingLevel, step.id);
+    if (step.type === "agent") {
+      validateModel(step.model, step.id);
+      validateThinkingLevel(step.thinkingLevel, step.id);
+    }
     if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);

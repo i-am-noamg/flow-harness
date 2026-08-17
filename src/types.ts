@@ -19,15 +19,15 @@ export interface AgentVariant {
   id: string;
   when: string;
   prompt: string;
-  model?: ModelProfile;
-  thinkingLevel?: ThinkingLevel;
+  model: ModelProfile;
+  thinkingLevel: ThinkingLevel;
   writes?: boolean;
   outputFormat?: StepOutputFormat;
   inputs?: string[];
   outputs?: string[];
   context?: string;
 }
-export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; thinkingLevel?: ThinkingLevel; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
+export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile; thinkingLevel: ThinkingLevel; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
 export type CommandConsole = "always" | "on-failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
@@ -76,7 +76,7 @@ export interface AgentResult {
   response_model?: string;
   raw_stop_reason?: string;
   error_message?: string;
-  thinking_level?: string;
+  thinking_level: string;
   prompt_chars: number;
   prompt_path: string;
   input_chars: Record<string, number>;

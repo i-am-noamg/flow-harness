@@ -43,7 +43,7 @@ test("parallel batches reject writing agents", () => {
   assert.throws(() => validateWorkflow({
     name: "invalid-agent",
     steps: [
-      { id: "agent", type: "agent", parallel: true, writes: true, prompt: "prompt.md" },
+      { id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", parallel: true, writes: true, prompt: "prompt.md" },
     ],
   }), /writing agents cannot run in parallel/);
 });

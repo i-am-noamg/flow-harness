@@ -40,4 +40,4 @@ These skills should ship with the Pi flow extension, alongside the flow tools, r
 - [ ] Rewrite the extension's injected prompt to be clearer and more concise: explain the flow tools, when to use them, input conventions, output semantics, and run-inspection path without duplicating README material. Consider writing the available flows and how to use them so the agent won't need to run list_flows at the start every time.
 - [x] Improve `list_flows` output so it is compact and immediately actionable: include a one-line purpose, input types and explicit defaults, and declared outputs without noisy schema repetition.
 - [ ] Improve flow output presentation so results are concise and consistently structured, while making failures, changed files, status, and the run-inspection command easy to find.
-- [ ] Keep routine logs out of compact tool responses, but expose enough evidence to make the next deterministic action obvious.
+- [x] Keep routine logs out of compact tool responses, but expose enough evidence to make the next deterministic action obvious.

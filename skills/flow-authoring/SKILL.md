@@ -39,15 +39,17 @@ Apply these values to every flow design:
    - required and optional inputs, with useful defaults;
    - public outputs callers actually need;
    - steps, dependencies, failure behavior, and side effects;
+   - the explicit model and `thinkingLevel` for each agent step; both are required, with no implicit defaults. Use Pi levels `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
    - the cheapest model/tool set that can perform each agent step.
 4. Write the `.flow` file under `flows/` and add or update prompt files under `prompts/` when needed. Keep temporary workflows under `.flow/tmp/`, which is ignored by Git.
 5. Keep agent boundaries narrow. Declare only the artifacts a step needs with `inputs`; do not rely on an implicit universal `task` input.
-6. Choose output formats deliberately:
+6. Every agent step and variant must explicitly declare `model` and `thinkingLevel`; choose levels deliberately and remember Pi may clamp them to model capabilities.
+7. Choose output formats deliberately:
    - one output variable: use `single-line` for a scalar line or `text` for prose/multi-line text;
    - multiple named output variables: use `json` and declare the field names in `outputs`;
    - keep the fields and any schema flow-specific. Do not add harness-wide assumptions for one workflow.
-7. Use `exec` for direct commands and `shell` only when shell syntax is required. Use `parallel: true` only for independent, read-only steps; preserve barriers before dependent steps.
-8. Validate the flow and run a representative invocation when practical. Before running a flow with permanent or hard-to-revert consequences, obtain user approval unless that action was explicitly requested.
+8. Use `exec` for direct commands and `shell` only when shell syntax is required. Use `parallel: true` only for independent, read-only steps; preserve barriers before dependent steps.
+9. Validate the flow and run a representative invocation when practical. Before running a flow with permanent or hard-to-revert consequences, obtain user approval unless that action was explicitly requested.
 
 ## Design rules
 
