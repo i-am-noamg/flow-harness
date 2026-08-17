@@ -26,9 +26,9 @@ export interface AgentVariant {
   context?: string;
 }
 export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
-export type CommandOutput = "always" | "failure" | "never";
-export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; output?: CommandOutput; outputFormat?: Exclude<StepOutputFormat, "json">; }
-export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; output?: CommandOutput; outputFormat?: Exclude<StepOutputFormat, "json">; }
+export type CommandConsole = "always" | "on-failure" | "never";
+export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
+export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface LoopStep extends StepBase { type: "loop"; steps: Step[]; until: string; maxIterations?: number; }
 export type Step = AgentStep | ShellStep | ExecStep | LoopStep;
 

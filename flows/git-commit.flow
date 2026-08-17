@@ -61,7 +61,7 @@ steps:
     parallel: true
     program: git
     args: [diff, --cached]
-    output: failure
+    console: on-failure
     when: 'msg == "" || (new_branch == true && branch == "")'
 
   - id: generate

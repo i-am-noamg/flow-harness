@@ -91,7 +91,7 @@ steps:
     outputs: [commit_hash]
 ```
 
-Process steps support `text`, `single-line`, and `lines` output formats. With `lines` and two declared outputs, the first line is assigned to the first output and the remaining lines to the second. Use `inspect_flow_run` with `step_id` and `fields` to retrieve raw evidence when needed.
+Every agent, shell, and exec step exposes its latest canonical `step_id.output`, regardless of whether `outputs` is declared. `outputs` adds named values alongside it. Agent output is the final response text; process output is captured stdout/stderr. Thinking, tool calls, and usage remain execution metadata. Process steps support `text`, `single-line`, and `lines` output formats. With `lines` and two declared outputs, the first line is assigned to the first output and the remaining lines to the second. Use `inspect_flow_run` with `step_id` and `fields` to retrieve raw evidence when needed.
 
 ## Process steps
 
@@ -112,7 +112,7 @@ Use `shell` for pipes, redirects, chaining, globbing, or other shell syntax:
   command: rg "TODO" src | sort
 ```
 
-A shell can be selected explicitly with `shell: bash` or `shell: sh`. Set `output` on a shell or exec step to control CLI output: `always` (default) streams output, `failure` buffers it and prints only when the command fails, and `never` suppresses it. Output is always retained in the run JSON.
+A shell can be selected explicitly with `shell: bash` or `shell: sh`. Set `console` on a shell or exec step to control terminal streaming: `always` (default) streams output, `on-failure` buffers it and prints only when the command fails, and `never` suppresses it. Captured output is always retained in the run JSON.
 
 Consecutive read-only steps can run concurrently with `parallel: true`. A group starts at a marked step and includes consecutive marked steps; unmarked steps are barriers. The group completes before the next unmarked step runs. Parallel shell steps, loops, `stopWhen` steps, writing agents, sibling artifact dependencies, and duplicate output names are rejected during validation. Parallel workers use isolated artifact snapshots and their persisted results are merged in declared order.
 

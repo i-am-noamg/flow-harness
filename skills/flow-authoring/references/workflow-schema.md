@@ -38,7 +38,7 @@ steps:
   when: task != "" # optional condition
 ```
 
-Use `single-line` or `text`/multi-line output for one output variable. Use `json` when producing multiple named output variables. The output fields are a flow-level contract; the harness does not prescribe their names or schema.
+Use `single-line` or `text`/multi-line output for one output variable. Use `json` when producing multiple named output variables. Every agent, shell, and exec step exposes its latest canonical `step_id.output`. This is available whether or not `outputs` is declared. `outputs` adds named values alongside it; it does not replace the canonical output. Agent output is the final response text, while process output is captured stdout/stderr. Thinking, tool calls, and usage remain execution metadata rather than part of `output`.
 
 ## Process steps
 
@@ -49,7 +49,7 @@ Use `single-line` or `text`/multi-line output for one output variable. Use `json
   args: [test]
   cwd: . # optional, relative to the flow working directory
   timeout: 600000 # optional, milliseconds
-  output: failure # always, failure, or never
+  console: on-failure # terminal streaming: always, on-failure, or never
   outputFormat: text # text, single-line, or lines
 ```
 

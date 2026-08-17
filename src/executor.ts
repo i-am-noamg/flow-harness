@@ -261,8 +261,8 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     }
     if (step.type === "shell" || step.type === "exec") {
       const r = step.type === "shell"
-        ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, quiet ? "never" : step.output ?? "always")
-        : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, quiet ? "never" : step.output ?? "always");
+        ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, quiet ? "never" : step.console ?? "always")
+        : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, quiet ? "never" : step.console ?? "always");
       result.result = r;
       const normalizedOutput = normalizeStepOutput(r.output, step.outputFormat);
       const previous = step.history ? priorHistory(artifacts[step.id]) : [];

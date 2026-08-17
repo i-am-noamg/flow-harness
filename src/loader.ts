@@ -119,7 +119,8 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);
     if (step.type === "shell" && typeof step.command !== "string" || step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);
     if (step.type === "shell" && step.shell !== undefined && typeof step.shell !== "string") throw new Error(`${step.id}: shell must be a string`);
-    if ((step.type === "shell" || step.type === "exec") && step.output !== undefined && step.output !== "always" && step.output !== "failure" && step.output !== "never") throw new Error(`${step.id}: output must be always, failure, or never`);
+    if ((step.type === "shell" || step.type === "exec") && Object.prototype.hasOwnProperty.call(raw, "output")) throw new Error(`${step.id}: use console instead of output for process logging`);
+    if ((step.type === "shell" || step.type === "exec") && step.console !== undefined && step.console !== "always" && step.console !== "on-failure" && step.console !== "never") throw new Error(`${step.id}: console must be always, on-failure, or never`);
     if (step.type === "exec" && typeof step.program !== "string" || step.type === "exec" && !step.program) throw new Error(`${step.id}: exec requires program`);
     if (step.type === "exec" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: exec args must be strings`);
     if (step.type === "loop") {

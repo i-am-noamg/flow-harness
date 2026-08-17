@@ -50,7 +50,7 @@ steps:
         type: exec
         program: npm
         args: [test]
-        output: failure
+        console: on-failure
       - id: repair
         type: agent
         model: cheap
