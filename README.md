@@ -116,16 +116,18 @@ Sequential agent steps can share a Pi session with `context`. The first step cre
 - id: inspect
   type: agent
   context: analysis
-  prompt: prompts/inspect.md
+  prompt: inspect.md
 - id: summarize
   type: agent
   context: analysis
-  prompt: prompts/summarize.md
+  prompt: plan.md
 ```
 
 Context groups must not be used by parallel agents. Sharing reuses one Pi agent session (rather than manually copying artifacts between independent sessions), so later prompts include the earlier conversation and providers can reuse their cached prefix. It is also a semantic choice: use it only when seeing earlier prompts and responses is useful.
 
 Agent steps may also define ordered `variants`, each with its own `when`, prompt, inputs, outputs, and optional model/context settings. The first matching variant runs and is recorded in the step evidence; if none match, the step is skipped. This keeps mutually exclusive agent behavior in one logical step.
+
+Prompt paths may be absolute or relative. A bare filename defaults to `flows/prompts/<workflow-name>/<filename>`; relative paths also resolve from `flows/` and `flows/prompts/` for compatibility.
 
 ## Loops
 
@@ -143,7 +145,7 @@ Use a structured `loop` to retry a sequence until a condition is true:
       args: [test]
     - id: repair
       type: agent
-      prompt: prompts/repair.md
+      prompt: repair.md
       when: test.exit_code != 0
       writes: true
 ```

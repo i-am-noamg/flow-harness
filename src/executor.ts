@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
@@ -233,7 +233,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       return "continue";
     }
     const agentStep = (selectedVariant ? { ...step, ...selectedVariant, id: step.id, variants: undefined } : step) as AgentStep;
-    const prompt = await makePrompt(agentStep, root, cwd, artifacts);
+    const prompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow);
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     let sharedSession: AgentSessionHandle | undefined;
     if (agentStep.context) {
@@ -340,6 +340,19 @@ function evaluateValue(expression: string, artifacts: ArtifactMap): unknown {
   return comparison[2] === "==" ? actual === expected : actual !== expected;
 }
 
+function findPromptPath(prompt: string, root: string, cwd: string, workflowName: string): string {
+  if (isAbsolute(prompt)) {
+    if (!existsSync(prompt)) throw new Error(`Prompt file not found: ${prompt}`);
+    return prompt;
+  }
+  const candidates = prompt.includes("/")
+    ? [resolve(root, prompt), resolve(root, "prompts", prompt), resolve(cwd, prompt)]
+    : [resolve(root, "prompts", workflowName, prompt), resolve(root, prompt), resolve(root, "prompts", prompt), resolve(cwd, prompt)];
+  const match = candidates.find((candidate) => existsSync(candidate));
+  if (!match) throw new Error(`Prompt file not found: ${prompt} (looked in ${candidates.join(", ")})`);
+  return match;
+}
+
 function normalizeSingleLine(value: string): string {
   let result = value.trim().replace(/^```(?:text|markdown)?\s*|```$/g, "").trim();
   result = result.replace(/^commit message:\s*/i, "").split(/\r?\n/)[0].trim();
@@ -347,11 +360,9 @@ function normalizeSingleLine(value: string): string {
   return result;
 }
 
-async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap): Promise<string> {
+async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<string> {
   if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
-  const workflowRelative = resolve(root, step.prompt);
-  const projectRelative = resolve(cwd, step.prompt);
-  const promptPath = existsSync(workflowRelative) ? workflowRelative : projectRelative;
+  const promptPath = findPromptPath(step.prompt, root, cwd, workflowName);
   const prompt = await readFile(promptPath, "utf8");
   const inputs = (step.inputs ?? []).map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, artifacts), null, 2)}`).join("\n");
   const suffix = step.outputFormat === "single-line" || step.outputFormat === "json" ? "" : "\n\nOperate in the current repository. Return a concise summary of your work and decisions.";

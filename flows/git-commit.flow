@@ -70,19 +70,19 @@ steps:
     variants:
       - id: message
         when: 'msg == "" && (new_branch == false || branch != "")'
-        prompt: prompts/git-commit-message-only.md
+        prompt: message-only.md
         inputs: [status.output, staged_diff.output]
         outputs: [generated_commit_message]
         outputFormat: json
       - id: branch
         when: 'msg != "" && new_branch == true && branch == ""'
-        prompt: prompts/git-commit-branch-only.md
+        prompt: branch-only.md
         inputs: [status.output, staged_diff.output]
         outputs: [generated_branch]
         outputFormat: json
       - id: message_and_branch
         when: 'msg == "" && new_branch == true && branch == ""'
-        prompt: prompts/git-commit-message.md
+        prompt: message.md
         inputs: [status.output, staged_diff.output]
         outputs: [generated_commit_message, generated_branch]
         outputFormat: json
