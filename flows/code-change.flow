@@ -8,7 +8,7 @@ inputs:
   simple:
     type: boolean
     default: false
-    description: Skip inspection and planning when the implementation approach is already known.
+    description: Skip dedicated inspect and plan agents and let the implementation agent inspect directly.
 
 outputs:
   changed: implement.changed
