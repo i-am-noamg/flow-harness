@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
-import { runAgent } from "./pi-agent.js";
+import { createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
 import type { AgentStep, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
@@ -114,10 +114,12 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   const run: RunState = { id: makeRunId(), workflow: workflow.name, cwd, started_at: new Date().toISOString(), status: "running", steps: [] };
   const store = new RunStore(cwd);
   const artifacts: ArtifactMap = { ...(options.inputs ?? {}) };
+  const agentSessions = new Map<string, AgentSessionHandle>();
   await store.save(run);
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
-  const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet), { run, store, artifacts, root, cwd, quiet });
-  if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); await store.save(run); return run; }
+  const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions };
+  const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions), context);
+  if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); await store.save(run); disposeAgentSessions(agentSessions); return run; }
   const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
   const failed = run.steps.some((result) => {
     const step = topLevelSteps.get(result.id);
@@ -126,11 +128,17 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   run.status = failed ? "failed" : "succeeded";
   run.outputs = resolveWorkflowOutputs(workflow, artifacts);
   run.finished_at = new Date().toISOString(); await store.save(run);
+  disposeAgentSessions(agentSessions);
   if (!quiet) console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`); return run;
 }
 
 type StepControl = "continue" | "stop" | "fail";
-type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean };
+type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean; agentSessions: Map<string, AgentSessionHandle> };
+
+function disposeAgentSessions(sessions: Map<string, AgentSessionHandle>): void {
+  for (const handle of sessions.values()) handle.session.dispose?.();
+  sessions.clear();
+}
 
 /** Run consecutive marked steps with isolated artifacts and coordinator-owned persistence. */
 async function executeSteps(steps: Step[], execute: (step: Step) => Promise<StepControl>, context?: ExecutionContext): Promise<StepControl> {
@@ -161,22 +169,31 @@ async function executeParallelStep(step: Step, context: ExecutionContext): Promi
   const workerRun: RunState = { ...context.run, steps: [] };
   const workerArtifacts: ArtifactMap = { ...context.artifacts };
   const workerStore: RunStoreLike = { save: async () => undefined };
-  const control = await executeStep(step, step.id, workerRun, workerStore, workerArtifacts, context.root, context.cwd, true);
+  const control = await executeStep(step, step.id, workerRun, workerStore, workerArtifacts, context.root, context.cwd, true, context.agentSessions);
   return { control, steps: workerRun.steps, artifacts: workerArtifacts };
 }
 
-async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
+async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>): Promise<StepControl> {
   if (!shouldRun(step.when, artifacts)) {
     run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
     artifacts[recordId] = { status: "skipped", output: "" };
     artifacts[`${recordId}.output`] = "";
     if (!quiet) console.log(`↷ ${recordId} skipped`); await store.save(run); return "continue";
   }
-  const result: StepResult = { id: recordId, type: step.type, status: "running", started_at: new Date().toISOString() };
+  const selectedVariant = step.type === "agent" && step.variants
+    ? step.variants.find((variant) => shouldRun(variant.when, artifacts))
+    : undefined;
+  if (step.type === "agent" && step.variants && !selectedVariant) {
+    run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
+    artifacts[recordId] = { status: "skipped", output: "" };
+    artifacts[`${recordId}.output`] = "";
+    if (!quiet) console.log(`↷ ${recordId} skipped (no variant matched)`); await store.save(run); return "continue";
+  }
+  const result: StepResult = { id: recordId, type: step.type, status: "running", ...(selectedVariant ? { variant: selectedVariant.id } : {}), started_at: new Date().toISOString() };
   run.steps.push(result); await store.save(run); if (!quiet) process.stdout.write(`→ ${recordId}\r`);
   try {
     if (step.type === "loop") {
-      const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet);
+      const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet, agentSessions);
       if (control !== "continue") return control;
       const stopped = applyStopWhen(step, result, artifacts);
       result.finished_at = new Date().toISOString(); await store.save(run);
@@ -215,10 +232,19 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       if (!quiet) console.log(r.exit_code === 0 ? `✓ ${recordId}` : `✗ ${recordId} (exit ${r.exit_code})`);
       return "continue";
     }
-    const agentStep = step as AgentStep;
+    const agentStep = (selectedVariant ? { ...step, ...selectedVariant, id: step.id, variants: undefined } : step) as AgentStep;
     const prompt = await makePrompt(agentStep, root, cwd, artifacts);
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
-    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet);
+    let sharedSession: AgentSessionHandle | undefined;
+    if (agentStep.context) {
+      sharedSession = agentSessions.get(agentStep.context);
+      if (sharedSession && (sharedSession.model !== agentStep.model || sharedSession.writes !== (agentStep.writes ?? false))) throw new Error(`Shared agent context ${agentStep.context} must use the same model and writes setting`);
+      if (!sharedSession) {
+        sharedSession = await createAgentSession(cwd, agentStep.model, agentStep.writes ?? false);
+        agentSessions.set(agentStep.context, sharedSession);
+      }
+    }
+    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession);
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
     if (agentStep.outputFormat === "single-line") agentResult.output = normalizeSingleLine(agentResult.output);
@@ -249,13 +275,13 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
   }
 }
 
-async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean): Promise<StepControl> {
+async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>): Promise<StepControl> {
   const maxIterations = step.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const loopResult: LoopResult = { iterations: [], until: step.until, maxIterations, exhausted: false };
   result.result = loopResult;
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     const started = new Date().toISOString();
-    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet), { run, store, artifacts, root, cwd, quiet });
+    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions), { run, store, artifacts, root, cwd, quiet, agentSessions });
     if (control !== "continue") {
       loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
       result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
@@ -322,6 +348,7 @@ function normalizeSingleLine(value: string): string {
 }
 
 async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap): Promise<string> {
+  if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
   const workflowRelative = resolve(root, step.prompt);
   const projectRelative = resolve(cwd, step.prompt);
   const promptPath = existsSync(workflowRelative) ? workflowRelative : projectRelative;

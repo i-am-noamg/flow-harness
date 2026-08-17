@@ -14,7 +14,18 @@ export interface Workflow {
 
 export interface StepBase { id: string; type: StepType; when?: string; inputs?: string[]; outputs?: string[]; stopWhen?: string; stopMessage?: string; parallel?: boolean; }
 export type StepOutputFormat = "text" | "single-line" | "lines" | "json";
-export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt: string; writes?: boolean; outputFormat?: StepOutputFormat; }
+export interface AgentVariant {
+  id: string;
+  when: string;
+  prompt: string;
+  model?: ModelProfile;
+  writes?: boolean;
+  outputFormat?: StepOutputFormat;
+  inputs?: string[];
+  outputs?: string[];
+  context?: string;
+}
+export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
 export type CommandOutput = "always" | "failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; output?: CommandOutput; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; output?: CommandOutput; outputFormat?: Exclude<StepOutputFormat, "json">; }
@@ -30,10 +41,19 @@ export interface CommandResult {
   timed_out: boolean;
   duration: number;
 }
+export interface AgentUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+}
 export interface AgentResult {
   output: string;
   model?: string;
   duration: number;
+  usage?: AgentUsage;
   changed?: boolean;
   changed_files?: string[];
 }
@@ -65,6 +85,7 @@ export interface StepResult {
   result?: CommandResult | AgentResult | LoopResult;
   error?: string;
   message?: string;
+  variant?: string;
   control?: "continue" | "stop";
 }
 export interface RunState {

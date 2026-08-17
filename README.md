@@ -106,6 +106,27 @@ A shell can be selected explicitly with `shell: bash` or `shell: sh`. Set `outpu
 
 Consecutive read-only steps can run concurrently with `parallel: true`. A group starts at a marked step and includes consecutive marked steps; unmarked steps are barriers. The group completes before the next unmarked step runs. Parallel shell steps, loops, `stopWhen` steps, writing agents, sibling artifact dependencies, and duplicate output names are rejected during validation. Parallel workers use isolated artifact snapshots and their persisted results are merged in declared order.
 
+## Agent context and usage
+
+Agent steps record provider-reported token usage in run evidence, including input, output, cache-read, cache-write, total tokens, and cost when available. Providers that support prompt caching report cache activity; unsupported or unreported fields remain zero.
+
+Sequential agent steps can share a Pi session with `context`. The first step creates the session and later steps continue it, allowing the provider to reuse its cached prefix and preserving the conversation context:
+
+```yaml
+- id: inspect
+  type: agent
+  context: analysis
+  prompt: prompts/inspect.md
+- id: summarize
+  type: agent
+  context: analysis
+  prompt: prompts/summarize.md
+```
+
+Context groups must not be used by parallel agents. Sharing reuses one Pi agent session (rather than manually copying artifacts between independent sessions), so later prompts include the earlier conversation and providers can reuse their cached prefix. It is also a semantic choice: use it only when seeing earlier prompts and responses is useful.
+
+Agent steps may also define ordered `variants`, each with its own `when`, prompt, inputs, outputs, and optional model/context settings. The first matching variant runs and is recorded in the step evidence; if none match, the step is skipped. This keeps mutually exclusive agent behavior in one logical step.
+
 ## Loops
 
 Use a structured `loop` to retry a sequence until a condition is true:

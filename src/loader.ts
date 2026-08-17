@@ -38,12 +38,17 @@ function validateParallelBatches(steps: unknown[], path: string): void {
     while (index < steps.length && (steps[index] as Partial<Step>)?.parallel) batch.push(steps[index] as Partial<Step>), index++;
     const ids = new Set(batch.map((step) => step.id));
     const outputs = new Set<string>();
+    const contexts = new Set<string>();
     for (const step of batch) {
       for (const output of step.outputs ?? []) {
         if (outputs.has(output)) throw new Error(`${path}: parallel steps cannot share output name: ${output}`);
         outputs.add(output);
       }
-      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, prompt: (step as any).prompt });
+      if (step.type === "agent" && step.context) {
+        if (contexts.has(step.context)) throw new Error(`${path}: parallel agents cannot share context: ${step.context}`);
+        contexts.add(step.context);
+      }
+      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, prompt: (step as any).prompt, variants: (step as any).variants });
       for (const input of step.inputs ?? []) {
         const root = input.split(".")[0];
         if (ids.has(root)) throw new Error(`${step.id}: parallel step cannot depend on sibling artifact: ${root}`);
@@ -63,6 +68,28 @@ function validateCondition(expression: string, id: string, field: string): void 
   }
 }
 
+function validateAgentVariants(step: Partial<Step>): void {
+  const variants = (step as any).variants as unknown;
+  if (!Array.isArray(variants) || variants.length === 0) throw new Error(`${step.id}: variants must be a non-empty array`);
+  const ids = new Set<string>();
+  for (const [index, raw] of variants.entries()) {
+    const variant = raw as Record<string, unknown>;
+    const id = typeof variant.id === "string" ? variant.id : `${step.id}.variants[${index}]`;
+    if (typeof variant.id !== "string" || !variant.id) throw new Error(`${id}: invalid variant id`);
+    if (ids.has(variant.id)) throw new Error(`${step.id}: duplicate variant id: ${variant.id}`);
+    ids.add(variant.id);
+    if (typeof variant.when !== "string" || !variant.when.trim()) throw new Error(`${step.id}.${variant.id}: variant requires when`);
+    validateCondition(variant.when, `${step.id}.${variant.id}`, "when");
+    if (typeof variant.prompt !== "string" || !variant.prompt) throw new Error(`${step.id}.${variant.id}: variant requires prompt`);
+    if (variant.model !== undefined && typeof variant.model !== "string") throw new Error(`${step.id}.${variant.id}: model must be a string`);
+    if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
+    if (variant.context !== undefined && (typeof variant.context !== "string" || !variant.context.trim())) throw new Error(`${step.id}.${variant.id}: context must be a non-empty string`);
+    if (variant.outputFormat !== undefined && !["text", "single-line", "json"].includes(variant.outputFormat as string)) throw new Error(`${step.id}.${variant.id}: unsupported output format`);
+    if (variant.inputs !== undefined && (!Array.isArray(variant.inputs) || variant.inputs.some((input) => typeof input !== "string"))) throw new Error(`${step.id}.${variant.id}: inputs must be strings`);
+    if (variant.outputs !== undefined && (!Array.isArray(variant.outputs) || variant.outputs.some((output) => typeof output !== "string"))) throw new Error(`${step.id}.${variant.id}: outputs must be strings`);
+  }
+}
+
 function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts steps is Step[] {
   if (!Array.isArray(steps) || steps.length === 0) throw new Error(`${path} must contain at least one step`);
   validateParallelBatches(steps, path);
@@ -74,6 +101,8 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     ids.add(step.id);
     if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec" && step.type !== "loop") throw new Error(`${step.id}: unsupported type`);
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
+    if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
+    if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
     if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
@@ -81,7 +110,8 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.parallel && step.type === "shell") throw new Error(`${step.id}: shell steps cannot run in parallel`);
     if (step.parallel && step.type === "agent" && step.writes) throw new Error(`${step.id}: writing agents cannot run in parallel`);
     if (step.parallel && step.stopWhen) throw new Error(`${step.id}: stopWhen steps cannot run in parallel`);
-    if (step.type === "agent" && typeof step.prompt !== "string" || step.type === "agent" && !step.prompt) throw new Error(`${step.id}: agent requires prompt`);
+    if (step.type === "agent" && step.variants === undefined && (typeof step.prompt !== "string" || !step.prompt)) throw new Error(`${step.id}: agent requires prompt or variants`);
+    if (step.type === "agent" && step.variants !== undefined && step.prompt !== undefined && (typeof step.prompt !== "string" || !step.prompt)) throw new Error(`${step.id}: agent prompt must be a non-empty string`);
     if (step.type === "agent" && step.outputFormat !== undefined && !["text", "single-line", "json"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported agent output format`);
     if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);
     if (step.type === "shell" && typeof step.command !== "string" || step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);
