@@ -41,14 +41,24 @@ Runs are persisted as one complete JSON record under `.flow/runs/<run-id>.json`.
 
 ## Pi integration
 
-The built extension turns flows into tools inside a persistent Pi session:
+The package includes the extension and skills needed to use Flow as a Pi harness:
 
 ```bash
 npm run build
-pi -e ./dist/pi-extension.js
+flow                 # launch Pi with this package loaded
+flow --model ...     # pass options to Pi
+flow run ...         # use the headless workflow CLI
 ```
 
-The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate_flow`. Flow results contain statuses, declared outputs, failures, and changed files; routine raw logs remain in the run record and can be selected with `inspect_flow_run` using `step_id` and `fields`. The existing `flow` CLI remains available for headless runs. Shared run inspection is also available with `flow list` and `flow inspect <run-id> [--step <id>].
+`flow` launches Pi with the installed Flow package explicitly loaded, so it works from any repository. Pi keeps the current directory as the working repository: its local `flows/`, `.flow/`, and source files are not taken from the Flow package. `PI_BIN` can override the Pi executable when needed.
+
+For local development, the equivalent is:
+
+```bash
+pi -e .
+```
+
+The Pi agent can use `list_flows`, `run_flow`, `inspect_flow_run`, and `validate_flow`. Flow results contain statuses, declared outputs, failures, and changed files; routine raw logs remain in the run record and can be selected with `inspect_flow_run` using `step_id` and `fields`. With the unified command, `flow` launches Pi unless its first argument is a CLI command (`run`, `validate`, `list`, `inspect`, or `help`). Shared run inspection is available with `flow list` and `flow inspect <run-id> [--step <id>].
 
 ## Temporary flows
 

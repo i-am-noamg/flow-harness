@@ -1,11 +1,16 @@
 {
   "name": "flow-harness",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "bin": {
-    "flow": "dist/cli.js"
+    "flow": "dist/flow-launcher.js"
   },
+  "files": [
+    "dist",
+    "skills",
+    "flows",
+    "README.md"
+  ],
   "pi": {
     "extensions": ["./dist/pi-extension.js"],
     "skills": ["./skills"]
