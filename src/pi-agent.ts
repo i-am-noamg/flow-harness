@@ -1,4 +1,4 @@
-import type { AgentResult, AgentUsage } from "./types.js";
+import type { AgentResult, AgentUsage, ThinkingLevel } from "./types.js";
 
 function textFromMessage(message: any): string {
   if (!message) return "";
@@ -36,7 +36,7 @@ function emptyUsage(): AgentUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 }
 
-export async function createAgentSession(cwd: string, profile?: string, writes = false): Promise<AgentSessionHandle> {
+export async function createAgentSession(cwd: string, profile?: string, writes = false, thinkingLevel?: ThinkingLevel): Promise<AgentSessionHandle> {
   const sdk: any = await import("@earendil-works/pi-coding-agent");
   const runtime = await sdk.ModelRuntime.create();
   let model: any;
@@ -49,6 +49,7 @@ export async function createAgentSession(cwd: string, profile?: string, writes =
   const { session } = await sdk.createAgentSession({
     cwd,
     model,
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
     modelRuntime: runtime,
     sessionManager: sdk.SessionManager.inMemory(),
     tools: writes ? ["read", "bash", "edit", "write", "grep", "find", "ls"] : ["read", "grep", "find", "ls"],
@@ -56,10 +57,11 @@ export async function createAgentSession(cwd: string, profile?: string, writes =
   return { session, model: requested, writes };
 }
 
-export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}): Promise<AgentResult> {
+export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel): Promise<AgentResult> {
   const started = Date.now();
-  const handle = shared ?? await createAgentSession(cwd, profile, writes);
+  const handle = shared ?? await createAgentSession(cwd, profile, writes, thinkingLevel);
   const session = handle.session;
+  if (shared && thinkingLevel !== undefined) session.setThinkingLevel(thinkingLevel);
   const before = session.messages?.length ?? session.agent?.state?.messages?.length ?? 0;
   let retries = 0;
   let section: "thinking" | "output" | undefined;

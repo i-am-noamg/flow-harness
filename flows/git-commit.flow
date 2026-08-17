@@ -67,6 +67,7 @@ steps:
   - id: generate
     type: agent
     model: cheap
+    thinkingLevel: low
     variants:
       - id: message
         when: 'msg == "" && (new_branch == false || branch != "")'

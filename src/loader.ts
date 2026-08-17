@@ -3,6 +3,14 @@ import { resolve, dirname } from "node:path";
 import YAML from "yaml";
 import type { Workflow, WorkflowInput, Step } from "./types.js";
 
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+function validateThinkingLevel(value: unknown, path: string): void {
+  if (value !== undefined && (typeof value !== "string" || !THINKING_LEVELS.includes(value as typeof THINKING_LEVELS[number]))) {
+    throw new Error(`${path}: thinkingLevel must be one of ${THINKING_LEVELS.join(", ")}`);
+  }
+}
+
 export async function loadWorkflow(file: string): Promise<{ workflow: Workflow; root: string }> {
   const path = resolve(file);
   const workflow = YAML.parse(await readFile(path, "utf8")) as Workflow;
@@ -82,6 +90,7 @@ function validateAgentVariants(step: Partial<Step>): void {
     validateCondition(variant.when, `${step.id}.${variant.id}`, "when");
     if (typeof variant.prompt !== "string" || !variant.prompt) throw new Error(`${step.id}.${variant.id}: variant requires prompt`);
     if (variant.model !== undefined && typeof variant.model !== "string") throw new Error(`${step.id}.${variant.id}: model must be a string`);
+    validateThinkingLevel(variant.thinkingLevel, `${step.id}.${variant.id}`);
     if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
     if (variant.context !== undefined && (typeof variant.context !== "string" || !variant.context.trim())) throw new Error(`${step.id}.${variant.id}: context must be a non-empty string`);
     if (variant.outputFormat !== undefined && !["text", "single-line", "json"].includes(variant.outputFormat as string)) throw new Error(`${step.id}.${variant.id}: unsupported output format`);
@@ -102,6 +111,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec" && step.type !== "loop") throw new Error(`${step.id}: unsupported type`);
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
     if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
+    if (step.type === "agent") validateThinkingLevel(step.thinkingLevel, step.id);
     if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);

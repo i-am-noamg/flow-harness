@@ -20,6 +20,7 @@ steps:
   - id: inspect
     type: agent
     model: cheap
+    thinkingLevel: low
     prompt: inspect.md
     when: simple == false
     outputs: [repo_summary]
@@ -28,6 +29,7 @@ steps:
   - id: plan
     type: agent
     model: strongest
+    thinkingLevel: high
     prompt: plan.md
     when: simple == false
     inputs: [task, repo_summary]
@@ -36,6 +38,7 @@ steps:
   - id: implement
     type: agent
     model: capable
+    thinkingLevel: medium
     prompt: implement.md
     inputs: [task, plan]
     writes: true
@@ -54,6 +57,7 @@ steps:
       - id: repair
         type: agent
         model: cheap
+        thinkingLevel: medium
         prompt: repair.md
         history: true
         when: test.exit_code != 0

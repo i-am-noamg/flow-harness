@@ -303,11 +303,11 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       sharedSession = agentSessions.get(agentStep.context);
       if (sharedSession && (sharedSession.model !== agentStep.model || sharedSession.writes !== (agentStep.writes ?? false))) throw new Error(`Shared agent context ${agentStep.context} must use the same model and writes setting`);
       if (!sharedSession) {
-        sharedSession = await createAgentSession(cwd, agentStep.model, agentStep.writes ?? false);
+        sharedSession = await createAgentSession(cwd, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel);
         agentSessions.set(agentStep.context, sharedSession);
       }
     }
-    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars);
+    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel);
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };

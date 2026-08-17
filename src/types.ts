@@ -1,5 +1,6 @@
 export type StepType = "agent" | "shell" | "exec" | "loop";
 export type ModelProfile = string;
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface WorkflowInput { type: "string" | "boolean"; description?: string; default?: string | boolean; }
 export type WorkflowInputs = Record<string, string | WorkflowInput>;
@@ -19,13 +20,14 @@ export interface AgentVariant {
   when: string;
   prompt: string;
   model?: ModelProfile;
+  thinkingLevel?: ThinkingLevel;
   writes?: boolean;
   outputFormat?: StepOutputFormat;
   inputs?: string[];
   outputs?: string[];
   context?: string;
 }
-export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
+export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; thinkingLevel?: ThinkingLevel; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
 export type CommandConsole = "always" | "on-failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }

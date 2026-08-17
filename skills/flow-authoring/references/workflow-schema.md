@@ -28,6 +28,7 @@ steps:
 - id: inspect
   type: agent
   model: cheap # optional profile or provider/model
+  thinkingLevel: medium # optional: off, minimal, low, medium, high, xhigh, or max
   prompt: prompts/inspect.md
   writes: false # true when the agent may edit files
   tools: [read, grep, find, ls] # optional; when supported
