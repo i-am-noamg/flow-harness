@@ -265,6 +265,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
         : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, quiet ? "never" : step.output ?? "always");
       result.result = r;
       const normalizedOutput = normalizeStepOutput(r.output, step.outputFormat);
+      const previous = step.history ? priorHistory(artifacts[step.id]) : [];
       const stepArtifact: Record<string, any> = { ...r, output: normalizedOutput };
       if (step.outputs?.length) {
         if (Array.isArray(normalizedOutput) && step.outputs.length > 1) {
@@ -272,6 +273,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
           stepArtifact[step.outputs[1]] = normalizedOutput.slice(1);
         } else for (const output of step.outputs) stepArtifact[output] = normalizedOutput;
       }
+      if (step.history) appendHistory(stepArtifact, previous, historyEntry(stepArtifact, step.outputs, normalizedOutput));
       artifacts[step.id] = stepArtifact; artifacts[`${step.id}.output`] = normalizedOutput;
       const stopped = applyStopWhen(step, result, artifacts);
       if (step.stopWhen) {
@@ -305,6 +307,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       }
     }
     const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars);
+    const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
     if (agentStep.outputFormat === "single-line") agentResult.output = normalizeSingleLine(agentResult.output);
@@ -319,6 +322,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     // case the alias is a scalar, not the step artifact object.
     if (artifacts[agentStep.id] && typeof artifacts[agentStep.id] === "object") {
       for (const output of agentStep.outputs ?? []) (artifacts[agentStep.id] as Record<string, unknown>)[output] = artifacts[output];
+      if (agentStep.history) appendHistory(artifacts[agentStep.id] as Record<string, unknown>, previous, historyEntry(artifacts[agentStep.id] as Record<string, unknown>, agentStep.outputs, agentResult.output));
     }
     result.status = "succeeded";
     result.control = "continue";
@@ -354,6 +358,21 @@ async function executeLoop(step: LoopStep, result: StepResult, recordId: string,
     if (until) { return "continue"; }
   }
   loopResult.exhausted = true; result.status = "failed"; result.control = "continue"; result.error = `${recordId} exhausted its ${maxIterations} iteration limit`; result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
+}
+
+function priorHistory(artifact: unknown): unknown[] {
+  return artifact && typeof artifact === "object" && Array.isArray((artifact as Record<string, unknown>).history)
+    ? [...(artifact as Record<string, unknown>).history as unknown[]]
+    : [];
+}
+
+function historyEntry(artifact: Record<string, unknown>, outputs: string[] | undefined, output: unknown): unknown {
+  if (!outputs?.length) return output;
+  return Object.fromEntries(outputs.map((name) => [name, artifact[name]]));
+}
+
+function appendHistory(artifact: Record<string, unknown>, previous: unknown[], entry: unknown): void {
+  artifact.history = [...previous, entry];
 }
 
 function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): boolean | undefined {

@@ -33,6 +33,7 @@ steps:
   tools: [read, grep, find, ls] # optional; when supported
   inputs: [task, status.output]
   outputs: [summary]
+  history: true # optional; expose prior executions as step_id.history
   outputFormat: text # text, single-line, or json
   when: task != "" # optional condition
 ```

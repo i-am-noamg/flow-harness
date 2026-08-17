@@ -53,8 +53,9 @@ steps:
         output: failure
       - id: repair
         type: agent
-        model: capable
+        model: cheap
         prompt: repair.md
+        history: true
         when: test.exit_code != 0
-        inputs: [task, plan, implement.output, test.exit_code, test.output]
+        inputs: [task, plan, implement.output, repair.history, test.exit_code, test.output]
         writes: true

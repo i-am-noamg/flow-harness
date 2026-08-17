@@ -106,6 +106,8 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
     if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
+    if (step.history !== undefined && typeof step.history !== "boolean") throw new Error(`${step.id}: history must be a boolean`);
+    if (step.type === "loop" && step.history) throw new Error(`${step.id}: history belongs on loop-body steps, not loops`);
     if (step.parallel && step.type === "loop") throw new Error(`${step.id}: loops cannot run in parallel`);
     if (step.parallel && step.type === "shell") throw new Error(`${step.id}: shell steps cannot run in parallel`);
     if (step.parallel && step.type === "agent" && step.writes) throw new Error(`${step.id}: writing agents cannot run in parallel`);
@@ -120,7 +122,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.type === "exec" && typeof step.program !== "string" || step.type === "exec" && !step.program) throw new Error(`${step.id}: exec requires program`);
     if (step.type === "exec" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: exec args must be strings`);
     if (step.type === "loop") {
-      const allowed = new Set(["id", "type", "when", "inputs", "outputs", "stopWhen", "stopMessage", "parallel", "steps", "until", "maxIterations"]);
+      const allowed = new Set(["id", "type", "when", "inputs", "outputs", "stopWhen", "stopMessage", "parallel", "history", "steps", "until", "maxIterations"]);
       const unsupported = Object.keys(raw as object).find((key) => !allowed.has(key));
       if (unsupported) throw new Error(`${step.id}: unsupported loop property: ${unsupported}`);
       if (typeof step.until !== "string" || !step.until.trim()) throw new Error(`${step.id}: loop requires until`);

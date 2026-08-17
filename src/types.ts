@@ -12,7 +12,7 @@ export interface Workflow {
   steps: Step[];
 }
 
-export interface StepBase { id: string; type: StepType; when?: string; inputs?: string[]; outputs?: string[]; stopWhen?: string; stopMessage?: string; parallel?: boolean; }
+export interface StepBase { id: string; type: StepType; when?: string; inputs?: string[]; outputs?: string[]; stopWhen?: string; stopMessage?: string; parallel?: boolean; history?: boolean; }
 export type StepOutputFormat = "text" | "single-line" | "lines" | "json";
 export interface AgentVariant {
   id: string;

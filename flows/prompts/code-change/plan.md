@@ -1,1 +1,1 @@
-Create a precise implementation plan for the task based on the repository summary. Name files to change, explain the design, and define verification steps. Do not modify files.
+Create a minimal, precise implementation plan from the task and repository summary. Name files to change, explain only the necessary design decisions, and define focused verification steps. Preserve existing behavior unless the task requires changing it. Do not modify files or plan unrelated cleanup.

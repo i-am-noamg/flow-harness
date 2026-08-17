@@ -160,7 +160,7 @@ Use a structured `loop` to retry a sequence until a condition is true:
       writes: true
 ```
 
-The body runs sequentially and `until` is evaluated after each complete iteration. `maxIterations` defaults to 10 and must be a positive integer; exhausting it fails the loop and run. Loops may be nested, and declared step IDs must be unique across the workflow. Conditions and artifacts use logical child IDs (the latest iteration overwrites them), while persisted records use qualified IDs such as `test_and_repair[2].test`. Command failures can be recovered by later loop steps; agent failures fail the run, while a triggered `stopWhen` ends it successfully with `control: stop`.
+The body runs sequentially and `until` is evaluated after each complete iteration. `maxIterations` defaults to 10 and must be a positive integer; exhausting it fails the loop and run. Loops may be nested, and declared step IDs must be unique across the workflow. Conditions and artifacts use logical child IDs (the latest iteration overwrites them), while persisted records use qualified IDs such as `test_and_repair[2].test`. Set `history: true` on a loop-body step to retain its logical outputs in `step_id.history`; `step_id.output` and declared output aliases still refer to only the latest execution. History entries are output values, or objects keyed by the step's declared outputs. Command failures can be recovered by later loop steps; agent failures fail the run, while a triggered `stopWhen` ends it successfully with `control: stop`.
 
 ## Git commits
 

@@ -1,1 +1,1 @@
-Inspect the repository for the requested task. Identify relevant files, conventions, existing tests, and risks. Do not modify files. Produce a compact, actionable repository summary for another agent.
+Inspect the repository for the requested task. Read only relevant files and tests, identify project conventions and risks, and do not modify files. Produce a compact, actionable summary for the implementing agent: relevant paths, current behavior, recommended verification, and important constraints. Do not propose broad unrelated cleanup.
