@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // package was installed through Pi, npm, or invoked from a checkout.
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
-const cliCommands = new Set(["run", "validate", "list", "inspect", "help"]);
+const cliCommands = new Set(["run", "validate", "list", "inspect", "help", "--help", "-h"]);
 const isCliInvocation = cliCommands.has(args[0] ?? "");
 const command = isCliInvocation ? process.execPath : (process.env.PI_BIN ?? "pi");
 const commandArgs = isCliInvocation

@@ -2,15 +2,21 @@
 
 A small, declarative workflow harness for coding agents, powered by the Pi SDK.
 
-## Quick start
+## Install
+
+The package is currently installed from a checkout or local package path rather than from the public npm registry.
 
 ```bash
+git clone https://github.com/i-am-noamg/flow-harness.git flow
+cd flow
 npm install
-npm run dev -- --task "add input validation to the API"
-# The default code-change flow defines `task` as an input; other flows expose their own inputs.
+npm run build
+npm link                         # optional: makes `flow` available globally
 ```
 
-Configure model profiles with provider/model IDs:
+Without `npm link`, run the local CLI with `npm run dev -- ...`. After linking, use `flow ...` from any repository. The build is required when using the compiled `flow` launcher after changing source files.
+
+The package includes the Pi SDK and its `pi` executable. Configure Pi authentication/provider credentials as required by Pi. Model profiles are selected with provider/model IDs:
 
 ```bash
 export FLOW_MODEL_CHEAP=anthropic/claude-haiku-4-5
@@ -18,26 +24,44 @@ export FLOW_MODEL_CAPABLE=anthropic/claude-sonnet-4-5
 export FLOW_MODEL_STRONGEST=anthropic/claude-opus-4-5
 ```
 
-Or run a workflow directly:
+## Use the CLI
+
+`flow` without a workflow subcommand launches Pi with the Flow extension loaded. `flow run` is the headless workflow runner:
 
 ```bash
+# Run the default flows/code-change.flow
+flow --task "add input validation to the API"
+
+# Run a named or explicit workflow
+flow run code-change --task "fix the failing tests"
+flow run flows/git-commit.flow --msg "fix auth bug"
+
+# Local development equivalent
 npm run dev -- run flows/code-change.flow --task "fix the failing tests"
-# Skip inspection and planning when the implementation approach is already known
-npm run dev -- run flows/code-change.flow --task "fix the failing tests" --simple
 ```
 
-Inspect a workflow before running it:
+The default workflow is `flows/code-change.flow`. Override it with `FLOW_WORKFLOW`:
 
 ```bash
-npm run dev -- help code-change
-# Paths also work: npm run dev -- help flows/git-commit.flow
+FLOW_WORKFLOW=flows/git-commit.flow flow --msg "prepare release"
 ```
 
-There is no global task argument. Workflow options come from the workflow's `inputs` definition: use `--<input> <value>` for string inputs and `--<input>` for boolean inputs. For example, `code-change.flow` defines `task`, while `git-commit.flow` defines `msg`, `push`, and other inputs. Inputs can include a `description` and `default` to document their usage.
+Workflow options come from the workflow's declared `inputs`: string inputs use `--<input> <value>` and boolean inputs use `--<input>`. There is no global `--task` argument; `task` is simply an input of the default `code-change` workflow. `--simple` is specific to `code-change`: it skips inspection and planning while retaining implementation, testing, and conditional repair. Use `flow help <name-or-path>` to see a workflow's inputs, defaults, and descriptions.
 
-`--simple` skips the `inspect` and `plan` steps, but still runs implementation, tests, and conditional repair.
+Useful CLI commands:
 
-Runs are persisted as one complete JSON record under `.flow/runs/<run-id>.json`. Process steps preserve `output`, `stdout`, `stderr`, `exit_code`, `signal`, `timed_out`, and `duration`; workflow inputs control what is handed to agents. A `stopWhen` guard reports workflow `status: succeeded` and uses `control: stop` or `control: continue`; its underlying exit code remains available, but a nonzero guard exit is not itself a flow failure. Workflows can declare public `outputs` mapped from step artifacts; these are returned to Pi without exposing routine raw logs.
+```bash
+flow --help
+flow list
+flow help code-change
+flow validate flows/code-change.flow
+flow inspect <run-id>
+flow inspect <run-id> --step test
+```
+
+`flow list` shows workflows in `flows/` and explicitly addressed temporary workflows in `.flow/tmp/`. Names resolve under `flows/`; temporary workflows require their path. `flow validate` checks a workflow without running it. `flow inspect` reads the saved run record and can focus on one qualified or logical step ID.
+
+Runs are persisted as complete JSON records under `.flow/runs/<run-id>.json`. Process steps preserve `output`, `stdout`, `stderr`, `exit_code`, `signal`, `timed_out`, and `duration`; routine CLI responses are bounded summaries. Workflow inputs control what is handed to agents, and declared workflow `outputs` are returned in the summary.
 
 ## Pi integration
 
