@@ -1,9 +1,9 @@
-Generate a commit message and, when requested, a branch name from the Git information provided below.
+Generate a concise commit message and a valid Git branch name for the staged changes.
 
-Return only a valid JSON object with exactly these string fields:
+Return only this JSON object, with exactly these string fields:
 {
   "generated_commit_message": "...",
   "generated_branch": "..."
 }
 
-The generated_commit_message may be multiline and should clearly summarize the changes. The generated_branch must be a concise valid Git branch name only when new_branch is true and branch is empty; otherwise return an empty string. Do not use Markdown, code fences, explanations, or any text outside the JSON object.
+The commit message may be multiline and must summarize the changes. Use lowercase hyphen-separated words for the branch name. Do not use Markdown, code fences, explanations, or any text outside the JSON object.

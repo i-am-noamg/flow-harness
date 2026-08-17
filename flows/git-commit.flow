@@ -103,13 +103,13 @@ steps:
     type: exec
     program: git
     args: [commit, -m, "{{msg}}"]
-    when: msg != ""
+    when: 'msg != "" && (new_branch == false || (branch != "" && create_branch.exit_code == 0) || (branch == "" && create_generated_branch.exit_code == 0))'
 
   - id: commit_generated
     type: exec
     program: git
     args: [commit, -m, "{{generated_commit_message}}"]
-    when: msg == ""
+    when: 'msg == "" && (new_branch == false || (branch != "" && create_branch.exit_code == 0) || (branch == "" && create_generated_branch.exit_code == 0))'
 
   - id: commit_details
     type: exec
