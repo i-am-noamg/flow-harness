@@ -366,7 +366,7 @@ function priorHistory(artifact: unknown): unknown[] {
     : [];
 }
 
-function historyEntry(artifact: Record<string, unknown>, outputs: string[] | undefined, output: unknown): unknown {
+export function historyEntry(artifact: Record<string, unknown>, outputs: string[] | undefined, output: unknown): unknown {
   if (!outputs?.length) return output;
   return Object.fromEntries(outputs.map((name) => [name, artifact[name]]));
 }

@@ -28,7 +28,7 @@ export function validateWorkflow(w: Workflow): void {
     }
   }
   const ids = new Set<string>();
-  validateSteps(w.steps, ids, "steps");
+  validateSteps(w.steps, ids, "steps", false);
 }
 
 function validateParallelBatches(steps: unknown[], path: string): void {
@@ -90,7 +90,7 @@ function validateAgentVariants(step: Partial<Step>): void {
   }
 }
 
-function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts steps is Step[] {
+function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHistory: boolean): asserts steps is Step[] {
   if (!Array.isArray(steps) || steps.length === 0) throw new Error(`${path} must contain at least one step`);
   validateParallelBatches(steps, path);
   for (const [index, raw] of steps.entries()) {
@@ -107,6 +107,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
     if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
     if (step.history !== undefined && typeof step.history !== "boolean") throw new Error(`${step.id}: history must be a boolean`);
+    if (step.history && !allowHistory) throw new Error(`${step.id}: history belongs on loop-body steps, not top-level steps`);
     if (step.type === "loop" && step.history) throw new Error(`${step.id}: history belongs on loop-body steps, not loops`);
     if (step.parallel && step.type === "loop") throw new Error(`${step.id}: loops cannot run in parallel`);
     if (step.parallel && step.type === "shell") throw new Error(`${step.id}: shell steps cannot run in parallel`);
@@ -128,7 +129,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string): asserts 
       if (typeof step.until !== "string" || !step.until.trim()) throw new Error(`${step.id}: loop requires until`);
       validateCondition(step.until, step.id, "until");
       if (step.maxIterations !== undefined && (!Number.isInteger(step.maxIterations) || step.maxIterations <= 0)) throw new Error(`${step.id}: maxIterations must be a positive integer`);
-      validateSteps(step.steps, ids, `${step.id}.steps`);
+      validateSteps(step.steps, ids, `${step.id}.steps`, true);
     }
   }
 }
