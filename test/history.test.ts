@@ -35,6 +35,32 @@ test("loop step history keeps all outputs while the alias stays latest", async (
   assert.deepEqual(run.outputs?.all, ["0", "1"]);
 });
 
+test("ANSI process output is stripped from workflow values and history", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "flow-history-ansi-"));
+  const workflow: Workflow = {
+    name: "ansi-history",
+    outputs: { latest: "value.output", all: "value.history" },
+    steps: [{
+      id: "repeat",
+      type: "loop",
+      until: "value.exit_code == 0",
+      maxIterations: 1,
+      steps: [{
+        id: "value",
+        type: "exec",
+        history: true,
+        outputFormat: "single-line",
+        program: node,
+        args: ["-e", "process.stdout.write('\\u001b[33m1\\u001b[39m\\n')"],
+      }],
+    }],
+  };
+  const run = await execute({ workflow, root: cwd, cwd, output: "quiet" });
+  assert.equal(run.status, "succeeded");
+  assert.equal(run.outputs?.latest, "1");
+  assert.deepEqual(run.outputs?.all, ["1"]);
+});
+
 test("agent history entries preserve multiple named outputs", () => {
   const artifact = { x: "first", y: "second", z: "third" };
   assert.deepEqual(historyEntry(artifact, ["x", "y", "z"], JSON.stringify(artifact)), artifact);

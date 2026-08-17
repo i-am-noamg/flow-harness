@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
+import { stripAnsi } from "./ansi.js";
 import { createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
@@ -264,7 +265,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
         ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, quiet ? "never" : step.console ?? "always")
         : await runExec(render(step.program, artifacts), (step.args ?? []).map((arg) => render(arg, artifacts)), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, quiet ? "never" : step.console ?? "always");
       result.result = r;
-      const normalizedOutput = normalizeStepOutput(r.output, step.outputFormat);
+      const normalizedOutput = normalizeStepOutput(stripAnsi(r.output), step.outputFormat);
       const previous = step.history ? priorHistory(artifacts[step.id]) : [];
       const stepArtifact: Record<string, any> = { ...r, output: normalizedOutput };
       if (step.outputs?.length) {
@@ -310,19 +311,20 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
-    if (agentStep.outputFormat === "single-line") agentResult.output = normalizeSingleLine(agentResult.output);
-    result.result = agentResult; artifacts[agentStep.id] = agentResult;
+    const agentOutput = stripAnsi(agentResult.output);
+    const agentArtifact = { ...agentResult, output: agentStep.outputFormat === "single-line" ? normalizeSingleLine(agentOutput) : agentOutput };
+    result.result = agentResult; artifacts[agentStep.id] = agentArtifact;
     if (agentStep.outputFormat === "json") {
-      let parsed: any; try { parsed = JSON.parse(agentResult.output.trim()); } catch { throw new Error("Agent produced malformed JSON output"); }
+      let parsed: any; try { parsed = JSON.parse(agentOutput.trim()); } catch { throw new Error("Agent produced malformed JSON output"); }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Agent JSON output must be an object");
-      for (const output of agentStep.outputs ?? []) { if (typeof parsed[output] !== "string") throw new Error(`Agent JSON output is missing string field: ${output}`); artifacts[output] = parsed[output]; }
+      for (const output of agentStep.outputs ?? []) { if (typeof parsed[output] !== "string") throw new Error(`Agent JSON output is missing string field: ${output}`); artifacts[output] = stripAnsi(parsed[output]); }
       if (agentStep.outputs?.includes("generated_commit_message") && !artifacts.generated_commit_message.trim()) throw new Error("Agent produced an empty generated commit message");
-    } else for (const output of agentStep.outputs ?? []) artifacts[output] = agentResult.output;
+    } else for (const output of agentStep.outputs ?? []) artifacts[output] = agentArtifact.output;
     // An output may intentionally have the same name as the step ID. In that
     // case the alias is a scalar, not the step artifact object.
     if (artifacts[agentStep.id] && typeof artifacts[agentStep.id] === "object") {
       for (const output of agentStep.outputs ?? []) (artifacts[agentStep.id] as Record<string, unknown>)[output] = artifacts[output];
-      if (agentStep.history) appendHistory(artifacts[agentStep.id] as Record<string, unknown>, previous, historyEntry(artifacts[agentStep.id] as Record<string, unknown>, agentStep.outputs, agentResult.output));
+      if (agentStep.history) appendHistory(artifacts[agentStep.id] as Record<string, unknown>, previous, historyEntry(artifacts[agentStep.id] as Record<string, unknown>, agentStep.outputs, agentArtifact.output));
     }
     result.status = "succeeded";
     result.control = "continue";
