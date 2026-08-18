@@ -7,7 +7,7 @@ Each item should be independently implementable as a focused commit.
 ## Agent execution
 
 - [ ] Allow each agent step to declare its Pi `tools` allowlist explicitly, and use a documented default when it is omitted. Validate tool names and persist the effective allowlist with the step evidence.
-- [ ] Ensure `session.dispose()` runs in `runAgent()` even when `session.prompt()` throws.
+- [x] Ensure `session.dispose()` runs in `runAgent()` even when `session.prompt()` throws.
 - [x] Persist agent execution metadata consistently in `.flow/runs/<run-id>.json`, including failures, model metadata, token usage when reported by the SDK, retries, and other relevant execution details.
 - [ ] Add measurable agent execution metrics to `.flow/runs/<run-id>.json`: prompt/input size, output size, model, duration, repair-iteration count, total agent time, and total context usage when available. Record effective tools and tools actually used if Pi exposes that information; otherwise document the limitation rather than reconstructing it unreliably from text. Skill/context files loaded may also be useful metadata, but should only be added if Pi exposes them through a stable API or if the run record already captures the relevant session events.
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runAgent, type AgentSessionHandle } from "../src/pi-agent.js";
+import { AgentExecutionError, runAgent, type AgentSessionHandle } from "../src/pi-agent.js";
 
 test("runAgent sets a shared session thinking level before prompting and records the effective level", async () => {
   const calls: string[] = [];
@@ -28,4 +28,22 @@ test("runAgent sets a shared session thinking level before prompting and records
   assert.deepEqual(calls, ["set:high", "subscribe", "prompt"]);
   assert.equal(result.output, "done");
   assert.equal(result.thinking_level, "medium");
+});
+
+test("runAgent preserves metadata when prompting throws", async () => {
+  const session: any = {
+    messages: [],
+    thinkingLevel: "high",
+    sessionId: "failed-session",
+    subscribe() { return () => undefined; },
+    async prompt() { throw new Error("provider failed"); },
+  };
+  const shared: AgentSessionHandle = { session, model: "test-model", writes: false };
+
+  await assert.rejects(
+    runAgent("prompt", process.cwd(), undefined, false, true, shared),
+    (error: unknown) => error instanceof AgentExecutionError
+      && error.agentResult.thinking_level === "high"
+      && error.agentResult.error_message === "provider failed",
+  );
 });

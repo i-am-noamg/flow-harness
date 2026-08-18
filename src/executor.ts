@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { stripAnsi } from "./ansi.js";
-import { createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
+import { AgentExecutionError, createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
 import type { AgentStep, AgentUsage, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
@@ -311,9 +311,12 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
+    result.result = agentResult;
+    const finalStopReason = agentResult.stop_reasons.at(-1);
+    if (finalStopReason === "error" || finalStopReason === "aborted") throw new Error(agentResult.error_message ?? `Agent stopped with reason: ${finalStopReason}`);
     const agentOutput = stripAnsi(agentResult.output);
     const agentArtifact = { ...agentResult, output: agentStep.outputFormat === "single-line" ? normalizeSingleLine(agentOutput) : agentOutput };
-    result.result = agentResult; artifacts[agentStep.id] = agentArtifact;
+    artifacts[agentStep.id] = agentArtifact;
     if (agentStep.outputFormat === "json") {
       let parsed: any; try { parsed = JSON.parse(agentOutput.trim()); } catch { throw new Error("Agent produced malformed JSON output"); }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Agent JSON output must be an object");
@@ -337,6 +340,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId}`);
     return stopped ? "stop" : "continue";
   } catch (error) {
+    if (error instanceof AgentExecutionError) result.result = error.agentResult;
     result.status = "failed"; result.error = formatStepError(error); result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
   }
 }
