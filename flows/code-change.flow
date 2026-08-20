@@ -13,7 +13,7 @@ inputs:
 outputs:
   changed: implement.changed
   changed_files: implement.changed_files
-  tests_passed: test.outcome == passed
+  tests_passed: test.exit_code == 0
   tests_status: test.status
 
 steps:
@@ -46,18 +46,19 @@ steps:
   - id: check_and_repair
     type: loop
     maxIterations: 5
-    until: test.outcome == passed && (lint.outcome == passed || lint.outcome == unavailable)
+    until: lint.exit_code == 0 && test.exit_code == 0
     when: implement.changed == true
     steps:
       - id: lint
-        type: check
-        script: lint
-        required: false
+        type: exec
+        program: npm
+        args: [run, lint, --if-present]
         parallel: true
         console: on-failure
       - id: test
-        type: check
-        script: test
+        type: exec
+        program: npm
+        args: [test]
         parallel: true
         console: on-failure
       - id: repair
@@ -66,6 +67,6 @@ steps:
         thinkingLevel: medium
         prompt: repair.md
         history: true
-        when: lint.outcome == failed || test.outcome == failed
-        inputs: [task, plan, repair.history, lint.outcome, lint.exit_code, lint.failure_output, test.outcome, test.exit_code, test.failure_output]
+        when: lint.exit_code != 0 || test.exit_code != 0
+        inputs: [task, plan, repair.history, lint.exit_code, lint.output, test.exit_code, test.output]
         writes: true
