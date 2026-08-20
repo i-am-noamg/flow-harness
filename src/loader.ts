@@ -74,7 +74,7 @@ function validateParallelBatches(steps: unknown[], path: string): void {
         if (contexts.has(step.context)) throw new Error(`${path}: parallel agents cannot share context: ${step.context}`);
         contexts.add(step.context);
       }
-      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, prompt: (step as any).prompt, variants: (step as any).variants });
+      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, script: (step as any).script, prompt: (step as any).prompt, variants: (step as any).variants });
       for (const input of step.inputs ?? []) {
         const root = input.split(".")[0];
         if (ids.has(root)) throw new Error(`${step.id}: parallel step cannot depend on sibling artifact: ${root}`);
@@ -127,7 +127,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (!step || typeof step.id !== "string" || !step.id) throw new Error(`${stepPath}: invalid step id`);
     if (ids.has(step.id)) throw new Error(`${stepPath}: duplicate step id: ${step.id}`);
     ids.add(step.id);
-    if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec" && step.type !== "loop") throw new Error(`${step.id}: unsupported type`);
+    if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec" && step.type !== "check" && step.type !== "loop") throw new Error(`${step.id}: unsupported type`);
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
     if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
     if (step.type === "agent") {
@@ -152,8 +152,10 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);
     if (step.type === "shell" && typeof step.command !== "string" || step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);
     if (step.type === "shell" && step.shell !== undefined && typeof step.shell !== "string") throw new Error(`${step.id}: shell must be a string`);
-    if ((step.type === "shell" || step.type === "exec") && Object.prototype.hasOwnProperty.call(raw, "output")) throw new Error(`${step.id}: use console instead of output for process logging`);
-    if ((step.type === "shell" || step.type === "exec") && step.console !== undefined && step.console !== "always" && step.console !== "on-failure" && step.console !== "never") throw new Error(`${step.id}: console must be always, on-failure, or never`);
+    if ((step.type === "shell" || step.type === "exec" || step.type === "check") && Object.prototype.hasOwnProperty.call(raw, "output")) throw new Error(`${step.id}: use console instead of output for process logging`);
+    if ((step.type === "shell" || step.type === "exec" || step.type === "check") && step.console !== undefined && step.console !== "always" && step.console !== "on-failure" && step.console !== "never") throw new Error(`${step.id}: console must be always, on-failure, or never`);
+    if (step.type === "check" && (typeof step.script !== "string" || !step.script.trim())) throw new Error(`${step.id}: check requires a package script`);
+    if (step.type === "check" && step.required !== undefined && typeof step.required !== "boolean") throw new Error(`${step.id}: check required must be a boolean`);
     if (step.type === "exec" && typeof step.program !== "string" || step.type === "exec" && !step.program) throw new Error(`${step.id}: exec requires program`);
     if (step.type === "exec" && step.args !== undefined && (!Array.isArray(step.args) || step.args.some((arg) => typeof arg !== "string"))) throw new Error(`${step.id}: exec args must be strings`);
     if (step.type === "loop") {

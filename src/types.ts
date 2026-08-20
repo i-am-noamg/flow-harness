@@ -1,4 +1,4 @@
-export type StepType = "agent" | "shell" | "exec" | "loop";
+export type StepType = "agent" | "shell" | "exec" | "check" | "loop";
 export type ModelProfile = string;
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -32,8 +32,10 @@ export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile
 export type CommandConsole = "always" | "on-failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
+/** Runs an npm package script without permitting repository writes. */
+export interface CheckStep extends StepBase { type: "check"; script: string; cwd?: string; timeout?: number; console?: CommandConsole; required?: boolean; }
 export interface LoopStep extends StepBase { type: "loop"; steps: Step[]; until: string; maxIterations?: number; }
-export type Step = AgentStep | ShellStep | ExecStep | LoopStep;
+export type Step = AgentStep | ShellStep | ExecStep | CheckStep | LoopStep;
 
 export interface CommandResult {
   output: string;
@@ -43,6 +45,11 @@ export interface CommandResult {
   signal?: string;
   timed_out: boolean;
   duration: number;
+  execution_error?: string;
+}
+export type CheckOutcome = "passed" | "failed" | "unavailable" | "fatal";
+export interface CheckResult extends CommandResult {
+  outcome: CheckOutcome;
 }
 export interface AgentUsage {
   input: number;
@@ -119,7 +126,7 @@ export interface StepResult {
   status: "running" | "succeeded" | "failed" | "skipped";
   started_at: string;
   finished_at?: string;
-  result?: CommandResult | AgentResult | LoopResult;
+  result?: CommandResult | CheckResult | AgentResult | LoopResult;
   error?: string;
   message?: string;
   variant?: string;

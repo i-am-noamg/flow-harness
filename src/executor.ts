@@ -6,7 +6,7 @@ import { stripAnsi } from "./ansi.js";
 import { AgentExecutionError, createAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
-import type { AgentStep, AgentUsage, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
+import type { AgentStep, AgentUsage, CheckResult, CheckStep, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
 export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; }
@@ -260,6 +260,28 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       if (!quiet) console.log(stopped ? `✗ ${recordId}: ${result.message}` : `✓ ${recordId} completed after ${(result.result as LoopResult).iterations.length} iteration(s)`);
       return stopped ? "stop" : "continue";
     }
+    if (step.type === "check") {
+      const r = await runPackageCheck(step, cwd, quiet ? "never" : step.console ?? "always");
+      result.result = r;
+      const stepArtifact: Record<string, unknown> = {
+        outcome: r.outcome,
+        exit_code: r.exit_code,
+        ...(r.outcome === "failed" || r.outcome === "fatal" ? { failure_output: boundedFailureOutput(r.output) } : {}),
+      };
+      artifacts[step.id] = stepArtifact;
+      if (r.outcome === "passed" || (r.outcome === "unavailable" && step.required === false)) {
+        result.status = "succeeded";
+        result.control = "continue";
+      } else {
+        result.status = "failed";
+        result.control = "continue";
+      }
+      stepArtifact.status = result.status;
+      stepArtifact.control = result.control;
+      result.finished_at = new Date().toISOString(); await store.save(run);
+      if (!quiet) console.log(r.outcome === "passed" || r.outcome === "unavailable" ? `✓ ${recordId} (${r.outcome})` : `✗ ${recordId} (${r.outcome})`);
+      return r.outcome === "fatal" || (r.outcome === "unavailable" && step.required !== false) ? "fail" : "continue";
+    }
     if (step.type === "shell" || step.type === "exec") {
       const r = step.type === "shell"
         ? await runShell(render(step.command, artifacts), step.cwd ? resolve(cwd, step.cwd) : cwd, step.timeout, step.shell, quiet ? "never" : step.console ?? "always")
@@ -367,6 +389,32 @@ async function executeLoop(step: LoopStep, result: StepResult, recordId: string,
   loopResult.exhausted = true; result.status = "failed"; result.control = "continue"; result.error = `${recordId} exhausted its ${maxIterations} iteration limit`; result.finished_at = new Date().toISOString(); await store.save(run); if (!quiet) console.error(`✗ ${recordId}: ${result.error}`); return "fail";
 }
 
+async function runPackageCheck(step: CheckStep, cwd: string, consoleMode: "always" | "on-failure" | "never"): Promise<CheckResult> {
+  const checkCwd = step.cwd ? resolve(cwd, step.cwd) : cwd;
+  let manifest: { scripts?: Record<string, unknown> };
+  try {
+    manifest = JSON.parse(await readFile(resolve(checkCwd, "package.json"), "utf8"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return checkResult("unavailable", `package.json is unavailable in ${checkCwd}`);
+    return checkResult("fatal", `Unable to read package.json: ${message}`);
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return checkResult("fatal", "package.json must contain an object");
+  const script = manifest.scripts?.[step.script];
+  if (typeof script !== "string" || !script.trim()) return checkResult("unavailable", `Package script \"${step.script}\" is unavailable`);
+  const command = await runExec("npm", ["run", step.script], checkCwd, step.timeout, consoleMode);
+  return { ...command, outcome: command.timed_out || Boolean(command.signal) || Boolean(command.execution_error) ? "fatal" : command.exit_code === 0 ? "passed" : "failed" };
+}
+
+function checkResult(outcome: CheckResult["outcome"], message: string): CheckResult {
+  return { outcome, output: message, stdout: "", stderr: message, exit_code: 1, timed_out: false, duration: 0 };
+}
+
+function boundedFailureOutput(output: string, limit = 6000): string {
+  const value = stripAnsi(output);
+  return value.length > limit ? `[truncated; last ${limit} characters]\n${value.slice(-limit)}` : value;
+}
+
 function priorHistory(artifact: unknown): unknown[] {
   return artifact && typeof artifact === "object" && Array.isArray((artifact as Record<string, unknown>).history)
     ? [...(artifact as Record<string, unknown>).history as unknown[]]
@@ -450,7 +498,7 @@ function normalizeSingleLine(value: string): string {
   return result;
 }
 
-async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
+export async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
   if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
   const promptPath = findPromptPath(step.prompt, root, cwd, workflowName);
   const prompt = await readFile(promptPath, "utf8");

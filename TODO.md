@@ -20,8 +20,8 @@ Each item should be independently implementable as a focused commit.
 
 ## `code-change` flow
 
-- [ ] Replace the current combined `test_and_repair` loop with independent lint and test checks that run in parallel when safe, then provide both results to a single repair loop. Define the completion condition, failure precedence, and behavior when one check is unavailable.
-- [ ] Preserve complete lint and test evidence in `.flow/runs/<run-id>.json` while passing only the explicitly requested, useful results into repair prompts.
+- [x] Replace the current combined `test_and_repair` loop with independent lint and test checks that run in parallel when safe, then provide both results to a single repair loop. Define the completion condition, failure precedence, and behavior when one check is unavailable.
+- [x] Preserve complete lint and test evidence in `.flow/runs/<run-id>.json` while passing only the explicitly requested, useful results into repair prompts.
 
 ## Workflow authoring
 
