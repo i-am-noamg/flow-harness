@@ -7,7 +7,7 @@ function help(): void {
   console.log(`flow - declarative agent workflows
 
 Usage:
-  flow [options]                         Run the default workflow
+  flow [options]                         Run the workflow configured by FLOW_WORKFLOW
   flow run [workflow.flow] [options]     Run a workflow
   flow validate <workflow.flow>          Validate a workflow
   flow list                              List available workflows
@@ -20,7 +20,7 @@ Workflow options:
   --<input>                   Set a boolean workflow input
 
 Environment:
-  FLOW_WORKFLOW   Default workflow path (default: flows/code-change.flow)
+  FLOW_WORKFLOW   Default workflow path when no workflow is specified
   FLOW_MODEL_CHEAP / CAPABLE / STRONGEST  Model as provider/id
 `);
 }
@@ -72,13 +72,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  let workflowRef = process.env.FLOW_WORKFLOW ?? "flows/code-change.flow";
+  let workflowRef = process.env.FLOW_WORKFLOW?.trim();
   let optionArgs: string[];
   if (args[0] === "run") {
     if (args[1] && !args[1].startsWith("--")) { workflowRef = args[1]; optionArgs = args.slice(2); }
     else optionArgs = args.slice(1);
   } else optionArgs = args;
 
+  if (!workflowRef) throw new Error("No default workflow configured. Set FLOW_WORKFLOW or specify one with `flow run <workflow>`.");
   const workflowPath = resolveFlowPath(workflowRef, cwd);
   if (!existsSync(workflowPath)) throw new Error(`Workflow not found: ${workflowRef}`);
   const { workflow } = await loadFlow(workflowRef, cwd);
