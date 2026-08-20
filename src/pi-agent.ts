@@ -11,6 +11,7 @@ export interface AgentSessionHandle {
   session: any;
   model?: string;
   writes: boolean;
+  effective_tools: string[];
 }
 
 export class AgentExecutionError extends Error {
@@ -47,7 +48,13 @@ function emptyUsage(): AgentUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 }
 
-export async function createAgentSession(cwd: string, profile?: string, writes = false, thinkingLevel?: ThinkingLevel): Promise<AgentSessionHandle> {
+/** Resolve an agent's declared tool allowlist, preserving explicit empty lists. */
+export function resolveEffectiveTools(tools: string[] | undefined, writes = false): string[] {
+  if (tools !== undefined) return tools;
+  return writes ? ["read", "bash", "edit", "write", "grep", "find", "ls"] : ["read", "grep", "find", "ls"];
+}
+
+export async function createAgentSession(cwd: string, profile?: string, writes = false, thinkingLevel?: ThinkingLevel, tools?: string[]): Promise<AgentSessionHandle> {
   const sdk: any = await import("@earendil-works/pi-coding-agent");
   const runtime = await sdk.ModelRuntime.create();
   let model: any;
@@ -57,20 +64,21 @@ export async function createAgentSession(cwd: string, profile?: string, writes =
     model = runtime.getModel(provider, rest.join("/"));
     if (!model) throw new Error(`Model not found: ${requested}`);
   }
+  const effective_tools = resolveEffectiveTools(tools, writes);
   const { session } = await sdk.createAgentSession({
     cwd,
     model,
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
     modelRuntime: runtime,
     sessionManager: sdk.SessionManager.inMemory(),
-    tools: writes ? ["read", "bash", "edit", "write", "grep", "find", "ls"] : ["read", "grep", "find", "ls"],
+    tools: effective_tools,
   });
-  return { session, model: requested, writes };
+  return { session, model: requested, writes, effective_tools };
 }
 
-export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel): Promise<AgentResult> {
+export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel, tools?: string[]): Promise<AgentResult> {
   const started = Date.now();
-  const handle = shared ?? await createAgentSession(cwd, profile, writes, thinkingLevel);
+  const handle = shared ?? await createAgentSession(cwd, profile, writes, thinkingLevel, tools);
   const session = handle.session;
   if (shared && thinkingLevel !== undefined) session.setThinkingLevel(thinkingLevel);
   const before = session.messages?.length ?? session.agent?.state?.messages?.length ?? 0;
@@ -158,6 +166,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     retries,
     stop_reasons: assistants.map((message: any) => message.stopReason).filter(Boolean),
     tool_names,
+    effective_tools: handle.effective_tools,
     tool_results: toolResults.length,
     tool_failures,
     turn_metrics,

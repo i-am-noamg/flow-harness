@@ -4,6 +4,18 @@ import YAML from "yaml";
 import type { Workflow, WorkflowInput, Step } from "./types.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const PI_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
+
+function validateTools(value: unknown, path: string): void {
+  if (!Array.isArray(value)) throw new Error(`${path}: tools must be an array`);
+  const names = new Set<string>();
+  for (const tool of value) {
+    if (typeof tool !== "string") throw new Error(`${path}: tools must contain strings`);
+    if (!PI_TOOLS.includes(tool as typeof PI_TOOLS[number])) throw new Error(`${path}: unsupported tool: ${tool}`);
+    if (names.has(tool)) throw new Error(`${path}: duplicate tool: ${tool}`);
+    names.add(tool);
+  }
+}
 
 function validateModel(value: unknown, path: string): void {
   if (value === undefined || (typeof value === "string" && !value.trim())) throw new Error(`${path}: model is required`);
@@ -98,6 +110,7 @@ function validateAgentVariants(step: Partial<Step>): void {
     validateModel(variant.model, `${step.id}.${variant.id}`);
     validateThinkingLevel(variant.thinkingLevel, `${step.id}.${variant.id}`);
     if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
+    if (variant.tools !== undefined) validateTools(variant.tools, `${step.id}.${variant.id}`);
     if (variant.context !== undefined && (typeof variant.context !== "string" || !variant.context.trim())) throw new Error(`${step.id}.${variant.id}: context must be a non-empty string`);
     if (variant.outputFormat !== undefined && !["text", "single-line", "json"].includes(variant.outputFormat as string)) throw new Error(`${step.id}.${variant.id}: unsupported output format`);
     if (variant.inputs !== undefined && (!Array.isArray(variant.inputs) || variant.inputs.some((input) => typeof input !== "string"))) throw new Error(`${step.id}.${variant.id}: inputs must be strings`);
@@ -120,6 +133,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.type === "agent") {
       validateModel(step.model, step.id);
       validateThinkingLevel(step.thinkingLevel, step.id);
+      if (step.tools !== undefined) validateTools(step.tools, step.id);
     }
     if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);

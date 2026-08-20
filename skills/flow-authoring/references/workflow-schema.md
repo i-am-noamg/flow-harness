@@ -31,13 +31,15 @@ steps:
   thinkingLevel: medium # required: off, minimal, low, medium, high, xhigh, or max
   prompt: prompts/inspect.md
   writes: false # true when the agent may edit files
-  tools: [read, grep, find, ls] # optional; when supported
+  tools: [read, grep, find, ls] # optional allowlist: read, bash, edit, write, grep, find, ls
   inputs: [task, status.output]
   outputs: [summary]
   history: true # optional; expose prior executions as step_id.history
   outputFormat: text # text, single-line, or json
   when: task != "" # optional condition
 ```
+
+When `tools` is omitted, `writes: false` defaults to `[read, grep, find, ls]`; `writes: true` defaults to `[read, bash, edit, write, grep, find, ls]`. An explicit list, including `tools: []`, is used unchanged. Grant the smallest allowlist needed. `writes` remains the safety declaration for workspace snapshots and parallel-write restrictions; set it accurately whenever the allowlist could mutate the workspace—it is not inferred from `tools`. Variants may override their step's `tools` list.
 
 Use `single-line` or `text`/multi-line output for one output variable. Use `json` when producing multiple named output variables. Every agent, shell, and exec step exposes its latest canonical `step_id.output`. This is available whether or not `outputs` is declared. `outputs` adds named values alongside it; it does not replace the canonical output. Agent output is the final response text, while process output is captured stdout/stderr. Thinking, tool calls, and usage remain execution metadata rather than part of `output`.
 

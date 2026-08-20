@@ -80,7 +80,7 @@ steps:
         writes: true
 ```
 
-Flow validates the workflow before it runs. It persists full run evidence—including command output, agent usage, model settings, tool calls, timing, and failures—under `.flow/runs/`. Routine results stay compact; inspect a run when you need the details.
+Flow validates the workflow before it runs. It persists full run evidence—including command output, agent usage, model settings, declared effective tool allowlists, tools actually called, timing, and failures—under `.flow/runs/`. Routine results stay compact; inspect a run when you need the details.
 
 See the complete, production-ready examples: [`code-change`](flows/code-change.flow) and [`git-commit`](flows/git-commit.flow).
 
@@ -141,7 +141,7 @@ Workflows are project-local: a name resolves under `flows/`, while an explicit p
 
 Put reusable workflows in `flows/`. Prompts can sit alongside their flow under `flows/prompts/<workflow-name>/`.
 
-- Use `agent` steps for inspection, planning, implementation, or other judgment.
+- Use `agent` steps for inspection, planning, implementation, or other judgment; grant each the smallest necessary `tools` allowlist. The declared allowlist and tools actually called are recorded separately in run evidence.
 - Use `exec` steps for direct commands and `shell` only when shell syntax is necessary.
 - Connect steps with declared `inputs` and `outputs`.
 - Use `when` for conditional work, `loop` for bounded retries, and `parallel: true` for independent read-only steps.

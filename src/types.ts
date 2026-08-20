@@ -22,12 +22,13 @@ export interface AgentVariant {
   model: ModelProfile;
   thinkingLevel: ThinkingLevel;
   writes?: boolean;
+  tools?: string[];
   outputFormat?: StepOutputFormat;
   inputs?: string[];
   outputs?: string[];
   context?: string;
 }
-export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile; thinkingLevel: ThinkingLevel; prompt?: string; writes?: boolean; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
+export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile; thinkingLevel: ThinkingLevel; prompt?: string; writes?: boolean; tools?: string[]; outputFormat?: StepOutputFormat; context?: string; variants?: AgentVariant[]; }
 export type CommandConsole = "always" | "on-failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
@@ -86,6 +87,7 @@ export interface AgentResult {
   retries: number;
   stop_reasons: string[];
   tool_names: string[];
+  effective_tools: string[];
   tool_results: number;
   tool_failures: number;
   turn_metrics: AgentTurnMetrics[];

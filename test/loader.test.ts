@@ -73,3 +73,25 @@ test("agent variant thinkingLevel rejects invalid values", () => {
     }), /agent\.variant: thinkingLevel must be one of/);
   }
 });
+
+test("agent tools accepts valid and empty step and variant allowlists", () => {
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "agent-tools",
+    steps: [agent({ tools: [], prompt: undefined, variants: [{ id: "variant", when: "ready == true", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", tools: ["read", "grep"] }] })],
+  }));
+});
+
+test("agent tools rejects invalid allowlists on steps and variants", () => {
+  for (const [tools, message] of [
+    ["read", "tools must be an array"],
+    [["read", 1], "tools must contain strings"],
+    [["unknown"], "unsupported tool: unknown"],
+    [["read", "read"], "duplicate tool: read"],
+  ] as const) {
+    assert.throws(() => validateWorkflow({ name: "invalid-tools", steps: [agent({ tools })] }), new RegExp(`agent: ${message}`));
+    assert.throws(() => validateWorkflow({
+      name: "invalid-variant-tools",
+      steps: [agent({ prompt: undefined, variants: [{ id: "variant", when: "ready == true", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", tools }] })],
+    }), new RegExp(`agent\\.variant: ${message}`));
+  }
+});

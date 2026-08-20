@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { stripAnsi } from "./ansi.js";
-import { AgentExecutionError, createAgentSession, runAgent, type AgentSessionHandle } from "./pi-agent.js";
+import { AgentExecutionError, createAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
 import type { AgentStep, AgentUsage, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
@@ -297,17 +297,18 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     const agentStep = (selectedVariant ? { ...step, ...selectedVariant, id: step.id, variants: undefined } : step) as AgentStep;
     const renderedPrompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow);
     const prompt = renderedPrompt.text;
+    const effectiveTools = resolveEffectiveTools(agentStep.tools, agentStep.writes ?? false);
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     let sharedSession: AgentSessionHandle | undefined;
     if (agentStep.context) {
       sharedSession = agentSessions.get(agentStep.context);
-      if (sharedSession && (sharedSession.model !== agentStep.model || sharedSession.writes !== (agentStep.writes ?? false))) throw new Error(`Shared agent context ${agentStep.context} must use the same model and writes setting`);
+      if (sharedSession && (sharedSession.model !== agentStep.model || sharedSession.writes !== (agentStep.writes ?? false) || !sameTools(sharedSession.effective_tools, effectiveTools))) throw new Error(`Shared agent context ${agentStep.context} must use the same model, writes setting, and tools allowlist`);
       if (!sharedSession) {
-        sharedSession = await createAgentSession(cwd, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel);
+        sharedSession = await createAgentSession(cwd, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel, effectiveTools);
         agentSessions.set(agentStep.context, sharedSession);
       }
     }
-    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel);
+    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel, effectiveTools);
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
@@ -388,6 +389,10 @@ function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): 
   result.control = stopped ? "stop" : "continue";
   if (stopped) result.message = step.stopMessage ?? `Stopped by ${step.id}`;
   return stopped;
+}
+
+function sameTools(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((tool, index) => tool === right[index]);
 }
 
 function formatStepError(error: unknown): string {
