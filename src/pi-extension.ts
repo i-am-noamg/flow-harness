@@ -37,10 +37,12 @@ function setPath(target: Record<string, unknown>, path: string, value: unknown):
 }
 
 function summaryText(summary: ReturnType<typeof summarizeRun>): string {
-  const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.control && step.control !== "continue" ? ` (${step.control})` : ""}${step.exit_code !== undefined ? ` [exit ${step.exit_code}]` : ""}${step.timed_out ? " [timed out]" : ""}${step.signal ? ` [signal ${step.signal}]` : ""}`).join(", ");
-  const outputs = Object.keys(summary.outputs).length ? `\nOutputs:\n${JSON.stringify(summary.outputs, null, 2)}` : "";
-  const failures = summary.failures.length ? `\nFailures:\n${JSON.stringify(summary.failures, null, 2)}` : "";
-  return `Flow ${summary.flow} ${summary.status}. Run ${summary.run_id}. Steps: ${steps}.${outputs}${failures}\nDetailed evidence: ${summary.run_file}; use inspect_flow_run when a requested fact is not present above.`;
+  const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.exit_code !== undefined ? ` (exit ${step.exit_code})` : ""}${step.error ? ` — ${step.error}` : ""}`).join(", ");
+  const outputs = Object.keys(summary.outputs).length ? `\nDeclared outputs: ${JSON.stringify(summary.outputs)}` : "";
+  const changed = summary.changed_files.length ? `\nChanged files: ${summary.changed_files.join(", ")}` : "";
+  const failures = summary.failures.length ? `\nFailures: ${summary.failures.map((failure) => `${failure.id}${failure.error ? ` — ${failure.error}` : ""}`).join("; ")}` : "";
+  const omitted = summary.omitted ? ` (${Object.entries(summary.omitted).map(([field, count]) => `${count} ${field}`).join(", ")} omitted)` : "";
+  return `Flow ${summary.flow}: ${summary.status}. Steps: ${steps || "none"}.${outputs}${changed}${failures}\nEvidence: ${summary.run_file}.${omitted} Inspect omitted or exact details with inspect_flow_run ${summary.run_id}.`;
 }
 
 export default function flowExtension(pi: ExtensionAPI): void {
@@ -56,17 +58,38 @@ When a listed workflow matches the task, prefer the flow tools: after creating o
     label: "Run flow",
     description: "Run a declarative workflow with its declared inputs. Use a flows/ name or an explicit path for temporary .flow/tmp/ workflows. Returns its status, declared outputs, failures, changed files, and run ID.",
     parameters: FlowRunParams,
-    async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+    async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
+      const statusKey = `flow:${toolCallId}`;
+      let completed = 0;
+      let total = 0;
+      const setStatus = (current: string) => ctx.ui.setStatus(statusKey, `Flow ${params.flow} · ${completed}/${total || "?"} · ${current}`);
+      setStatus("starting");
       try {
-        onUpdate?.({ content: [{ type: "text", text: `Running flow ${params.flow}...` }], details: { status: "running", flow: params.flow } });
-        const { summary } = await runFlow({ flow: params.flow, cwd, inputs: params.inputs, output: "quiet" });
+        const { summary } = await runFlow({
+          flow: params.flow,
+          cwd,
+          inputs: params.inputs,
+          output: "quiet",
+          onProgress: (event) => {
+            if (event.type === "flow_started") {
+              total = event.total_steps;
+              setStatus("starting");
+            } else if (event.type === "step_started") {
+              setStatus(event.id);
+            } else {
+              if (!event.loop_id) completed++;
+              setStatus(`${event.id} ${event.status}`);
+            }
+          },
+        });
         const text = summaryText(summary);
-        onUpdate?.({ content: [{ type: "text", text }], details: summary });
         return { content: [{ type: "text", text }], details: summary };
       } catch (error) {
         const text = `Flow failed to start: ${error instanceof Error ? error.message : String(error)}`;
         return { content: [{ type: "text", text }], details: { status: "failed", error: text } };
+      } finally {
+        ctx.ui.setStatus(statusKey, undefined);
       }
     },
   });

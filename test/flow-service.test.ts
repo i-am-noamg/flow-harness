@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { listFlows, loadFlow, resolveFlowPath, runFlow } from "../src/flow-service.js";
+import { listFlows, loadFlow, resolveFlowPath, runFlow, summarizeRun } from "../src/flow-service.js";
 
 const node = process.execPath;
 
@@ -40,6 +40,26 @@ test("listFlows keeps repository and temporary workflows distinct", async () => 
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test("run summaries are bounded and exclude raw command output", () => {
+  const run: any = {
+    id: "run", workflow: "summary", cwd: "/repo", started_at: "2025-01-01T00:00:00.000Z", status: "failed",
+    outputs: Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`output_${index}`, "x".repeat(2_000)])),
+    steps: Array.from({ length: 21 }, (_, index) => ({
+      id: `step_${index}`, declared_id: `step_${index}`, type: "exec", status: index === 0 ? "failed" : "succeeded", started_at: "2025-01-01T00:00:00.000Z",
+      error: index === 0 ? "failed command" : undefined,
+      result: { exit_code: index === 0 ? 1 : 0, stdout: "secret stdout", stderr: "secret stderr", changed_files: index === 0 ? ["changed.ts"] : [] },
+    })),
+  };
+  const summary = summarizeRun(run, "/repo");
+  assert.equal(summary.steps.length, 20);
+  assert.equal(Object.keys(summary.outputs).length, 20);
+  assert.deepEqual(summary.changed_files, ["changed.ts"]);
+  assert.equal(summary.failures[0]?.error, "failed command");
+  assert.equal("stdout" in summary.failures[0]!, false);
+  assert.match(summary.run_file, /^\.flow\/runs\/run\.json$/);
+  assert.deepEqual(summary.omitted, { steps: 1, outputs: 1 });
 });
 
 test("temporary flows require explicit paths while bare names resolve under flows", async () => {

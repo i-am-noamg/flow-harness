@@ -47,6 +47,41 @@ test("inspect_flow_run selects raw nested agent evidence while default inspectio
   }
 });
 
+test("run_flow uses user-only status updates and clears them without timeline updates", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "flow-extension-run-"));
+  try {
+    await mkdir(join(cwd, "flows"), { recursive: true });
+    await writeFile(join(cwd, "flows", "live.flow"), [
+      "name: live",
+      "outputs:",
+      "  answer: report.output",
+      "steps:",
+      "  - id: report",
+      "    type: exec",
+      `    program: ${JSON.stringify(process.execPath)}`,
+      `    args: [\"-e\", ${JSON.stringify("console.log('done')")}]`,
+    ].join("\n"));
+    const pi = fakePi();
+    flowExtension(pi as any);
+    const statuses: Array<[string, string | undefined]> = [];
+    let updates = 0;
+    const result = await pi.tools.get("run_flow").execute("call", { flow: "live" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    assert.equal(updates, 0);
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/? · starting")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/1 · report")));
+    assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
+    assert.match(result.content[0].text, /Flow live: succeeded/);
+    assert.match(result.content[0].text, /inspect_flow_run/);
+    assert.doesNotMatch(JSON.stringify(result), /stdout|stderr/);
+
+    const failed = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    assert.match(failed.content[0].text, /Flow failed to start/);
+    assert.deepEqual(statuses.at(-1), ["flow:bad", undefined]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("Flow injected guidance requires saved-run inspection and rejects inference", async () => {
   const pi = fakePi();
   flowExtension(pi as any);

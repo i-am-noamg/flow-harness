@@ -144,6 +144,27 @@ export interface WorkspaceSnapshot {
   fingerprint: string;
   files: Record<string, string>;
 }
+export interface FlowProgressStartEvent {
+  type: "flow_started";
+  run_id: string;
+  flow: string;
+  total_steps: number;
+}
+export interface FlowStepProgressEvent {
+  type: "step_started" | "step_finished";
+  run_id: string;
+  flow: string;
+  id: string;
+  declared_id: string;
+  status: StepResult["status"];
+  duration_ms: number;
+  loop_id?: string;
+  loop_iteration?: number;
+}
+/** Payload-safe lifecycle updates; detailed evidence remains in the saved run. */
+export type FlowProgressEvent = FlowProgressStartEvent | FlowStepProgressEvent;
+export type FlowProgressCallback = (event: FlowProgressEvent) => void;
+
 export interface StepResult {
   id: string;
   /** Declared workflow step ID; differs from id for loop children. */
@@ -225,6 +246,8 @@ export interface RunSummary {
   steps: Array<{ id: string; type: StepType; status: StepResult["status"]; control?: StepResult["control"]; exit_code?: number; signal?: string; timed_out?: boolean; changed?: boolean; message?: string; error?: string }>;
   changed_files: string[];
   outputs: Record<string, unknown>;
-  failures: Array<{ id: string; error?: string; exit_code?: number; signal?: string; timed_out?: boolean; stdout?: string; stderr?: string }>;
+  failures: Array<{ id: string; error?: string; exit_code?: number; signal?: string; timed_out?: boolean }>;
+  /** Indicates summary fields were bounded; inspect the saved run for omitted evidence. */
+  omitted?: { steps?: number; outputs?: number; changed_files?: number };
   run_file: string;
 }

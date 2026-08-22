@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve, relative, join } from "node:path";
 import { execute, type ExecuteOptions } from "./executor.js";
 import { loadWorkflow } from "./loader.js";
-import type { FlowCatalogEntry, RunState, RunSummary, StepResult, Workflow, WorkflowInput } from "./types.js";
+import type { FlowCatalogEntry, FlowProgressCallback, RunState, RunSummary, StepResult, Workflow, WorkflowInput } from "./types.js";
 
 export async function loadFlow(reference: string, cwd: string): Promise<Awaited<ReturnType<typeof loadWorkflow>>> {
   const path = resolveFlowPath(reference, cwd);
@@ -77,6 +77,7 @@ export interface RunFlowRequest {
   cwd: string;
   inputs?: Record<string, unknown>;
   output?: ExecuteOptions["output"];
+  onProgress?: FlowProgressCallback;
 }
 
 export async function runFlow(request: RunFlowRequest): Promise<{ workflow: Workflow; run: RunState; summary: RunSummary }> {
@@ -84,7 +85,7 @@ export async function runFlow(request: RunFlowRequest): Promise<{ workflow: Work
   if (!existsSync(path)) throw new Error(`Workflow not found: ${request.flow}`);
   const { workflow, root } = await loadWorkflow(path);
   const inputs = resolveInputs(workflow, request.inputs ?? {});
-  const run = await execute({ workflow, root, cwd: request.cwd, inputs, output: request.output ?? "normal" });
+  const run = await execute({ workflow, root, cwd: request.cwd, inputs, output: request.output ?? "normal", onProgress: request.onProgress });
   return { workflow, run, summary: summarizeRun(run, request.cwd) };
 }
 
@@ -103,16 +104,34 @@ function excerpt(value: unknown, limit = 2000): string | undefined {
   return text.length > limit ? `${text.slice(0, limit)}\n[truncated]` : text;
 }
 
+const SUMMARY_STEP_LIMIT = 20;
+const SUMMARY_OUTPUT_LIMIT = 20;
+const SUMMARY_CHANGED_FILE_LIMIT = 50;
+
+function boundedValue(value: unknown): unknown {
+  if (typeof value === "string") return excerpt(value, 1000) ?? "";
+  if (Array.isArray(value)) return value.slice(0, SUMMARY_OUTPUT_LIMIT).map(boundedValue);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).slice(0, SUMMARY_OUTPUT_LIMIT).map(([key, item]) => [key, boundedValue(item)]));
+  return value;
+}
+
 export function summarizeRun(run: RunState, cwd: string): RunSummary {
   const changedFiles = new Set<string>();
   const failures: RunSummary["failures"] = [];
-  const steps = run.steps.map((step) => {
+  const allSteps = run.steps.map((step) => {
     const result = step.result as any;
     for (const file of result?.changed_files ?? []) changedFiles.add(file);
-    if (step.status === "failed") failures.push({ id: step.id, error: excerpt(step.error, 1000), exit_code: result?.exit_code, signal: result?.signal, timed_out: result?.timed_out, stdout: excerpt(result?.stdout), stderr: excerpt(result?.stderr) });
-    return { id: step.id, type: step.type, status: step.status, control: step.control, exit_code: result?.exit_code, signal: result?.signal, timed_out: result?.timed_out, changed: result?.changed, message: step.message, error: step.error };
+    if (step.status === "failed") failures.push({ id: step.id, error: excerpt(step.error, 1000), exit_code: result?.exit_code, signal: result?.signal, timed_out: result?.timed_out });
+    return { id: step.id, type: step.type, status: step.status, control: step.control, exit_code: result?.exit_code, signal: result?.signal, timed_out: result?.timed_out, changed: result?.changed, message: excerpt(step.message, 1000), error: excerpt(step.error, 1000) };
   });
-  return { run_id: run.id, flow: run.workflow, status: run.status, steps, outputs: run.outputs ?? {}, failures, changed_files: [...changedFiles].sort(), run_file: relative(cwd, join(cwd, ".flow", "runs", `${run.id}.json`)) };
+  const outputEntries = Object.entries(run.outputs ?? {});
+  const files = [...changedFiles].sort();
+  const omitted = {
+    ...(allSteps.length > SUMMARY_STEP_LIMIT ? { steps: allSteps.length - SUMMARY_STEP_LIMIT } : {}),
+    ...(outputEntries.length > SUMMARY_OUTPUT_LIMIT ? { outputs: outputEntries.length - SUMMARY_OUTPUT_LIMIT } : {}),
+    ...(files.length > SUMMARY_CHANGED_FILE_LIMIT ? { changed_files: files.length - SUMMARY_CHANGED_FILE_LIMIT } : {}),
+  };
+  return { run_id: run.id, flow: run.workflow, status: run.status, steps: allSteps.slice(0, SUMMARY_STEP_LIMIT), outputs: Object.fromEntries(outputEntries.slice(0, SUMMARY_OUTPUT_LIMIT).map(([key, value]) => [key, boundedValue(value)])), failures: failures.slice(0, SUMMARY_STEP_LIMIT), changed_files: files.slice(0, SUMMARY_CHANGED_FILE_LIMIT), ...(Object.keys(omitted).length ? { omitted } : {}), run_file: relative(cwd, join(cwd, ".flow", "runs", `${run.id}.json`)) };
 }
 
 function summarizeToolEvidence(evidence: any): unknown {
