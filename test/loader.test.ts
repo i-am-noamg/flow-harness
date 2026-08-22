@@ -95,3 +95,32 @@ test("agent tools rejects invalid allowlists on steps and variants", () => {
     }), new RegExp(`agent\\.variant: ${message}`));
   }
 });
+
+test("condition syntax supports nested boolean expressions without resolving artifacts", () => {
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "conditions",
+    steps: [
+      { id: "first", type: "exec", program: "echo", when: "(missing.ready == true || fallback == false) && enabled != false", stopWhen: "(first.exit_code == 0 && missing.stop != true) || override == true" },
+      {
+        id: "loop", type: "loop", until: "(nested.done == true || missing.until == false) && enabled == true", steps: [
+          { id: "nested", type: "exec", program: "echo", when: "(missing.value == 1 || enabled == true) && nested.ready != false" },
+          agent({ id: "select", prompt: undefined, variants: [{ id: "chosen", when: "(missing.variant == true || enabled == true) && nested.ready != false", model: "cheap", thinkingLevel: "low", prompt: "prompt.md" }] }),
+        ],
+      },
+    ],
+  }));
+});
+
+test("condition syntax rejects malformed when, stopWhen, until, and variant conditions", () => {
+  for (const [field, expression, step, message] of [
+    ["when", "ready == true &&", { id: "when", type: "exec", program: "echo" }, /when: invalid when condition/],
+    ["stopWhen", "(ready == true", { id: "stop", type: "exec", program: "echo" }, /stop: invalid stopWhen condition/],
+    ["until", "ready > true", { id: "loop", type: "loop", steps: [{ id: "body", type: "exec", program: "echo" }] }, /loop: invalid until condition/],
+  ] as const) {
+    assert.throws(() => validateWorkflow({ name: `invalid-${field}`, steps: [{ ...step, [field]: expression }] as any }), message);
+  }
+  assert.throws(() => validateWorkflow({
+    name: "invalid-variant",
+    steps: [agent({ prompt: undefined, variants: [{ id: "variant", when: "ready", model: "cheap", thinkingLevel: "low", prompt: "prompt.md" }] })],
+  }), /agent\.variant: invalid when condition/);
+});

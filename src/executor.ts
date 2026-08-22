@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { stripAnsi } from "./ansi.js";
+import { evaluateCondition } from "./conditions.js";
 import { AgentExecutionError, createAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
@@ -22,101 +23,14 @@ function render(value: string, artifacts: ArtifactMap): string {
   return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, key) => String(lookup(key.trim(), artifacts) ?? ""));
 }
 
-type ConditionEvaluation =
-  | { kind: "true" | "false" }
-  | { kind: "unknown"; path: string }
-  | { kind: "invalid"; error: string };
-
 function shouldRun(expression: string | undefined, artifacts: ArtifactMap): boolean {
   if (!expression) return true;
-  const evaluation = evaluateCondition(expression, artifacts);
+  const evaluation = evaluateCondition(expression, (path) => lookup(path, artifacts));
   if (evaluation.kind === "true") return true;
   if (evaluation.kind === "false") return false;
   if (evaluation.kind === "unknown") throw new Error(`Unknown condition artifact/path: ${evaluation.path}`);
   if (evaluation.kind === "invalid") throw new Error(evaluation.error);
   throw new Error(`Invalid condition: ${expression}`);
-}
-
-function evaluateCondition(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
-  try {
-    return evaluateOr(expression.trim(), artifacts);
-  } catch (error) {
-    return { kind: "invalid", error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-function evaluateOr(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
-  let problem: ConditionEvaluation | undefined;
-  for (const part of splitTopLevel(expression, "||")) {
-    const value = evaluateAnd(part, artifacts);
-    if (value.kind === "true") return value;
-    if (value.kind === "unknown" || value.kind === "invalid") problem ??= value;
-  }
-  return problem ?? { kind: "false" };
-}
-
-function evaluateAnd(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
-  let problem: ConditionEvaluation | undefined;
-  for (const part of splitTopLevel(expression, "&&")) {
-    const value = evaluatePrimary(part, artifacts);
-    if (value.kind === "false") return value;
-    if (value.kind === "unknown" || value.kind === "invalid") problem ??= value;
-  }
-  return problem ?? { kind: "true" };
-}
-
-function evaluatePrimary(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
-  const unwrapped = unwrapParentheses(expression.trim());
-  return unwrapped === expression.trim()
-    ? evaluateComparison(unwrapped, artifacts)
-    : evaluateOr(unwrapped, artifacts);
-}
-
-function splitTopLevel(expression: string, operator: "&&" | "||"): string[] {
-  const parts: string[] = [];
-  let start = 0;
-  let depth = 0;
-  for (let index = 0; index < expression.length; index++) {
-    const character = expression[index];
-    if (character === "(") depth++;
-    else if (character === ")") {
-      depth--;
-      if (depth < 0) throw new Error(`Unbalanced condition: ${expression}`);
-    }
-    if (depth === 0 && expression.startsWith(operator, index)) {
-      parts.push(expression.slice(start, index).trim());
-      start = index + operator.length;
-      index += operator.length - 1;
-    }
-  }
-  if (depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
-  parts.push(expression.slice(start).trim());
-  if (parts.some((part) => !part)) throw new Error(`Invalid condition: ${expression}`);
-  return parts;
-}
-
-function unwrapParentheses(expression: string): string {
-  if (!expression.startsWith("(") || !expression.endsWith(")")) return expression;
-  let depth = 0;
-  for (let index = 0; index < expression.length; index++) {
-    if (expression[index] === "(") depth++;
-    else if (expression[index] === ")") depth--;
-    if (depth === 0 && index < expression.length - 1) return expression;
-  }
-  if (depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
-  return expression.slice(1, -1).trim();
-}
-
-function evaluateComparison(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
-  const match = expression.match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
-  if (!match) return { kind: "invalid", error: `Unsupported condition: ${expression}` };
-  const actual = lookup(match[1], artifacts);
-  if (actual === undefined) return { kind: "unknown", path: match[1] };
-  let expected: unknown = match[3].trim().replace(/^['\"]|['\"]$/g, "");
-  if (expected === "true") expected = true;
-  else if (expected === "false") expected = false;
-  else if (/^-?\d+(\.\d+)?$/.test(String(expected))) expected = Number(expected);
-  return { kind: match[2] === "==" ? (actual === expected ? "true" : "false") : (actual !== expected ? "true" : "false") };
 }
 
 export async function execute(options: ExecuteOptions): Promise<RunState> {

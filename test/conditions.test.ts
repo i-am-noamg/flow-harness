@@ -82,7 +82,19 @@ test("unknown condition artifacts fail when, stopWhen, and until deterministical
   assert.equal(loop.exhausted, false);
 });
 
-test("unsupported conditions fail when, stopWhen, and runtime until evaluation", async () => {
+test("conditions evaluate artifacts produced by prior steps at runtime", async () => {
+  const result = await run({
+    name: "artifact-condition",
+    steps: [
+      { ...command("produce"), outputFormat: "single-line" },
+      { ...command("consume"), when: "produce.output == ran" },
+    ],
+  });
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.steps[1]?.status, "succeeded");
+});
+
+test("malformed conditions fail when, stopWhen, and runtime until evaluation", async () => {
   const condition = "ready";
   const when = await run({ name: "when-invalid", steps: [{ ...command("when"), when: condition }] });
   assert.equal(when.status, "failed");

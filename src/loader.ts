@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import YAML from "yaml";
+import { validateCondition as validateConditionSyntax } from "./conditions.js";
 import type { Workflow, WorkflowInput, Step } from "./types.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -86,11 +87,11 @@ function validateParallelBatches(steps: unknown[], path: string): void {
   }
 }
 
-function validateCondition(expression: string, id: string, field: string): void {
-  for (const alternative of expression.split(/\s*\|\|\s*/)) {
-    for (const part of alternative.replace(/[()]/g, "").split(/\s*&&\s*/)) {
-      if (!/^[\w.-]+\s*(==|!=)\s*(?:.+)$/.test(part.trim())) throw new Error(`${id}: invalid ${field} condition`);
-    }
+function validateConditionField(expression: string, id: string, field: string): void {
+  try {
+    validateConditionSyntax(expression);
+  } catch {
+    throw new Error(`${id}: invalid ${field} condition`);
   }
 }
 
@@ -105,7 +106,7 @@ function validateAgentVariants(step: Partial<Step>): void {
     if (ids.has(variant.id)) throw new Error(`${step.id}: duplicate variant id: ${variant.id}`);
     ids.add(variant.id);
     if (typeof variant.when !== "string" || !variant.when.trim()) throw new Error(`${step.id}.${variant.id}: variant requires when`);
-    validateCondition(variant.when, `${step.id}.${variant.id}`, "when");
+    validateConditionField(variant.when, `${step.id}.${variant.id}`, "when");
     if (typeof variant.prompt !== "string" || !variant.prompt) throw new Error(`${step.id}.${variant.id}: variant requires prompt`);
     validateModel(variant.model, `${step.id}.${variant.id}`);
     validateThinkingLevel(variant.thinkingLevel, `${step.id}.${variant.id}`);
@@ -129,6 +130,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     ids.add(step.id);
     if (step.type !== "agent" && step.type !== "shell" && step.type !== "exec" && step.type !== "loop") throw new Error(`${step.id}: unsupported type`);
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
+    if (step.when !== undefined) validateConditionField(step.when, step.id, "when");
     if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
     if (step.type === "agent") {
       validateModel(step.model, step.id);
@@ -137,6 +139,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     }
     if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
+    if (step.stopWhen !== undefined) validateConditionField(step.stopWhen, step.id, "stopWhen");
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
     if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
     if (step.history !== undefined && typeof step.history !== "boolean") throw new Error(`${step.id}: history must be a boolean`);
@@ -161,7 +164,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
       const unsupported = Object.keys(raw as object).find((key) => !allowed.has(key));
       if (unsupported) throw new Error(`${step.id}: unsupported loop property: ${unsupported}`);
       if (typeof step.until !== "string" || !step.until.trim()) throw new Error(`${step.id}: loop requires until`);
-      validateCondition(step.until, step.id, "until");
+      validateConditionField(step.until, step.id, "until");
       if (step.maxIterations !== undefined && (!Number.isInteger(step.maxIterations) || step.maxIterations <= 0)) throw new Error(`${step.id}: maxIterations must be a positive integer`);
       validateSteps(step.steps, ids, `${step.id}.steps`, true);
     }
