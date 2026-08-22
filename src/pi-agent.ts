@@ -48,6 +48,40 @@ function emptyUsage(): AgentUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 }
 
+function toolEvidence(messages: any[]): AgentResult["tool_evidence"] {
+  const events: Extract<AgentResult["tool_evidence"], { availability: "available" }>["events"] = [];
+  const byCallId = new Map<string, (typeof events)[number]>();
+  let sourceOrder = 0;
+  for (const message of messages) {
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part.type !== "toolCall" || typeof part.id !== "string") continue;
+        const event = {
+          call_id: part.id,
+          name: part.name,
+          arguments: part.arguments,
+          source_order: sourceOrder++,
+          ...(typeof message.timestamp === "number" ? { timestamp: message.timestamp } : {}),
+        };
+        events.push(event);
+        byCallId.set(part.id, event);
+      }
+      continue;
+    }
+    if (message.role !== "toolResult" || typeof message.toolCallId !== "string") continue;
+    const event = byCallId.get(message.toolCallId);
+    if (!event || event.result) continue;
+    event.result = {
+      content: message.content,
+      ...(Object.hasOwn(message, "details") ? { details: message.details } : {}),
+      is_error: message.isError === true,
+      source_order: sourceOrder++,
+      ...(typeof message.timestamp === "number" ? { timestamp: message.timestamp } : {}),
+    };
+  }
+  return { availability: "available", events };
+}
+
 /** Capture only the stable Pi session snapshot; it is not cumulative run usage. */
 function snapshotContextUsage(session: any): AgentResult["context_usage"] {
   if (typeof session.getContextUsage !== "function") return { availability: "unavailable", reason: "Pi session does not expose getContextUsage" };
@@ -99,7 +133,8 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
   const handle = shared ?? await createAgentSession(cwd, profile, writes, thinkingLevel, tools);
   const session = handle.session;
   if (shared && thinkingLevel !== undefined) session.setThinkingLevel(thinkingLevel);
-  const before = session.messages?.length ?? session.agent?.state?.messages?.length ?? 0;
+  const beforeMessages = session.messages;
+  const before = Array.isArray(beforeMessages) ? beforeMessages.length : undefined;
   let retries = 0;
   let section: "thinking" | "output" | undefined;
   const printSection = (next: "thinking" | "output"): void => {
@@ -131,8 +166,12 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     context_usage = snapshotContextUsage(session);
     if (!shared) session.dispose?.();
   }
-  const messages = session.messages ?? session.agent?.state?.messages ?? [];
-  const newMessages = messages.slice(before);
+  const messages = session.messages;
+  const messagesAvailable = Array.isArray(messages);
+  const newMessages = messagesAvailable ? messages.slice(before ?? 0) : [];
+  const tool_evidence: AgentResult["tool_evidence"] = messagesAvailable
+    ? toolEvidence(newMessages)
+    : { availability: "unavailable", reason: "Pi session does not expose public messages" };
   const usage = emptyUsage();
   for (const message of newMessages) if (message.role === "assistant") addUsage(usage, message.usage);
   const assistants = newMessages.filter((message: any) => message.role === "assistant");
@@ -191,6 +230,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     effective_tools: handle.effective_tools,
     tool_results: toolResults.length,
     tool_failures,
+    tool_evidence,
     turn_metrics,
     api: apis.at(-1),
     raw_stop_reason: raw_stop_reasons.at(-1),

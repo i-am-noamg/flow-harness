@@ -1,5 +1,9 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { RunStore } from "../src/artifacts.js";
 import { AgentExecutionError, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "../src/pi-agent.js";
 
 test("resolveEffectiveTools uses documented defaults and preserves explicit lists", () => {
@@ -52,6 +56,53 @@ test("runAgent records stable tool calls and Pi context snapshots", async () => 
   assert.equal(result.output_chars, 4);
   assert.deepEqual(result.tool_names, ["read"]);
   assert.deepEqual(result.context_usage, { availability: "available", tokens: 123, context_window: 200, percent: 61.5 });
+});
+
+test("runAgent persists complete ordered transcript-derived tool evidence", async () => {
+  const session: any = {
+    messages: [{ role: "assistant", content: "earlier" }], thinkingLevel: "low", subscribe() { return () => undefined; },
+    async prompt() {
+      this.messages.push(
+        { role: "assistant", timestamp: 10, content: [{ type: "toolCall", id: "call-read", name: "read", arguments: { path: "src/a.ts" } }, { type: "toolCall", id: "call-bash", name: "bash", arguments: { command: "npm test" } }] },
+        { role: "toolResult", timestamp: 11, toolCallId: "call-read", toolName: "read", content: [{ type: "text", text: "file contents" }], details: { path: "src/a.ts" }, isError: false },
+        { role: "toolResult", timestamp: 12, toolCallId: "call-bash", toolName: "bash", content: [{ type: "text", text: "failed" }], details: { exitCode: 1 }, isError: true },
+        { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
+      );
+    },
+  };
+  const shared: AgentSessionHandle = { session, writes: false, effective_tools: ["read", "bash"] };
+  const result = await runAgent("prompt", process.cwd(), undefined, false, true, shared);
+
+  assert.equal(result.output, "done");
+  assert.deepEqual(result.tool_evidence, {
+    availability: "available",
+    events: [
+      { call_id: "call-read", name: "read", arguments: { path: "src/a.ts" }, source_order: 0, timestamp: 10, result: { content: [{ type: "text", text: "file contents" }], details: { path: "src/a.ts" }, is_error: false, source_order: 2, timestamp: 11 } },
+      { call_id: "call-bash", name: "bash", arguments: { command: "npm test" }, source_order: 1, timestamp: 10, result: { content: [{ type: "text", text: "failed" }], details: { exitCode: 1 }, is_error: true, source_order: 3, timestamp: 12 } },
+    ],
+  });
+
+  const cwd = await mkdtemp(join(tmpdir(), "flow-agent-evidence-"));
+  try {
+    const store = new RunStore(cwd);
+    await store.save({ id: "run", workflow: "test", cwd, started_at: "2025-01-01T00:00:00.000Z", status: "succeeded", steps: [{ id: "agent", declared_id: "agent", type: "agent", status: "succeeded", started_at: "2025-01-01T00:00:00.000Z", result }] });
+    const saved = JSON.parse(await readFile(join(cwd, ".flow", "runs", "run.json"), "utf8"));
+    assert.deepEqual(saved.steps[0].result.tool_evidence, result.tool_evidence);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("runAgent explicitly reports unavailable public transcript evidence", async () => {
+  const session: any = {
+    agent: { state: { messages: [{ role: "assistant", content: [{ type: "toolCall", id: "private", name: "read", arguments: { path: "secret" } }] }] } },
+    thinkingLevel: "low", subscribe() { return () => undefined; }, async prompt() { /* private state must not be read */ },
+  };
+  const shared: AgentSessionHandle = { session, writes: false, effective_tools: ["read"] };
+  const result = await runAgent("prompt", process.cwd(), undefined, false, true, shared);
+  assert.equal(result.output, "");
+  assert.deepEqual(result.tool_evidence, { availability: "unavailable", reason: "Pi session does not expose public messages" });
+  assert.equal(result.tool_calls, 0);
 });
 
 test("runAgent preserves partial Pi context snapshots", async () => {

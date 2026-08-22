@@ -115,7 +115,25 @@ export function summarizeRun(run: RunState, cwd: string): RunSummary {
   return { run_id: run.id, flow: run.workflow, status: run.status, steps, outputs: run.outputs ?? {}, failures, changed_files: [...changedFiles].sort(), run_file: relative(cwd, join(cwd, ".flow", "runs", `${run.id}.json`)) };
 }
 
+function summarizeToolEvidence(evidence: any): unknown {
+  if (!evidence || typeof evidence !== "object") return evidence;
+  if (evidence.availability === "available" && Array.isArray(evidence.events)) return { availability: "available", event_count: evidence.events.length };
+  if (evidence.availability === "unavailable") return { availability: "unavailable" };
+  return undefined;
+}
+
 export function summarizeStep(step: StepResult, outputLimit = 8000): unknown {
   const result = step.result as any;
-  return { ...step, result: result ? { ...result, output: excerpt(result.output, outputLimit), stdout: excerpt(result.stdout, outputLimit), stderr: excerpt(result.stderr, outputLimit) } : undefined };
+  if (!result) return { ...step, result: undefined };
+  const { tool_evidence, ...summary } = result;
+  return {
+    ...step,
+    result: {
+      ...summary,
+      output: excerpt(result.output, outputLimit),
+      stdout: excerpt(result.stdout, outputLimit),
+      stderr: excerpt(result.stderr, outputLimit),
+      ...(tool_evidence !== undefined ? { tool_evidence: summarizeToolEvidence(tool_evidence) } : {}),
+    },
+  };
 }

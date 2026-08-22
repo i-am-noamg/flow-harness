@@ -63,6 +63,25 @@ export interface AgentContextUsage {
   context_window?: number;
   percent?: number;
 }
+export interface AgentToolResultEvidence {
+  content: unknown;
+  details?: unknown;
+  is_error: boolean;
+  source_order: number;
+  timestamp?: number;
+}
+export interface AgentToolEventEvidence {
+  call_id: string;
+  name: string;
+  arguments: unknown;
+  source_order: number;
+  timestamp?: number;
+  result?: AgentToolResultEvidence;
+}
+/** Transcript-derived Pi tool evidence; hidden model reasoning is not exposed. */
+export type AgentToolEvidence =
+  | { availability: "available"; events: AgentToolEventEvidence[] }
+  | { availability: "unavailable"; reason: string };
 export interface AgentTurnMetrics {
   api?: string;
   provider?: string;
@@ -101,6 +120,7 @@ export interface AgentResult {
   effective_tools: string[];
   tool_results: number;
   tool_failures: number;
+  tool_evidence: AgentToolEvidence;
   turn_metrics: AgentTurnMetrics[];
   changed?: boolean;
   changed_files?: string[];
