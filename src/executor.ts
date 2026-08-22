@@ -240,10 +240,9 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     artifacts[`${recordId}.output`] = "";
     if (!quiet) console.log(`↷ ${recordId} skipped`); await store.save(run); return "continue";
   }
-  const selectedVariant = step.type === "agent" && step.variants
-    ? step.variants.find((variant) => shouldRun(variant.when, artifacts))
-    : undefined;
-  if (step.type === "agent" && step.variants && !selectedVariant) {
+  const effectiveAgent = step.type === "agent" ? resolveEffectiveAgentStep(step, artifacts) : undefined;
+  const selectedVariant = effectiveAgent?.variant;
+  if (step.type === "agent" && step.variants && !effectiveAgent) {
     run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
     artifacts[recordId] = { status: "skipped", output: "" };
     artifacts[`${recordId}.output`] = "";
@@ -294,7 +293,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       if (!quiet) console.log(r.exit_code === 0 ? `✓ ${recordId}` : `✗ ${recordId} (exit ${r.exit_code})`);
       return "continue";
     }
-    const agentStep = (selectedVariant ? { ...step, ...selectedVariant, id: step.id, variants: undefined } : step) as AgentStep;
+    const agentStep = effectiveAgent!.step;
     const renderedPrompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow);
     const prompt = renderedPrompt.text;
     const effectiveTools = resolveEffectiveTools(agentStep.tools, agentStep.writes ?? false);
@@ -391,6 +390,12 @@ function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): 
   return stopped;
 }
 
+export function resolveEffectiveAgentStep(step: AgentStep, artifacts: ArtifactMap): { step: AgentStep; variant?: NonNullable<AgentStep["variants"]>[number] } | undefined {
+  const variant = step.variants?.find((candidate) => shouldRun(candidate.when, artifacts));
+  if (step.variants && !variant) return undefined;
+  return { step: variant ? { ...step, ...variant, id: step.id, variants: undefined } : step, ...(variant ? { variant } : {}) };
+}
+
 function sameTools(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((tool, index) => tool === right[index]);
 }
@@ -450,12 +455,30 @@ function normalizeSingleLine(value: string): string {
   return result;
 }
 
+function projectArtifacts(paths: string[], artifacts: ArtifactMap): ArtifactMap {
+  const projected: ArtifactMap = {};
+  for (const path of paths) {
+    const value = lookup(path, artifacts);
+    if (value === undefined) continue;
+    const parts = path.split(".");
+    let target = projected;
+    for (const part of parts.slice(0, -1)) {
+      const existing = target[part];
+      target = target[part] = existing && typeof existing === "object" && !Array.isArray(existing) ? { ...existing } : {};
+    }
+    target[parts.at(-1)!] = value;
+  }
+  return projected;
+}
+
 export async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
   if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
   const promptPath = findPromptPath(step.prompt, root, cwd, workflowName);
   const prompt = await readFile(promptPath, "utf8");
-  const input_chars = Object.fromEntries((step.inputs ?? []).map((key) => [key, JSON.stringify(lookup(key, artifacts), null, 2)?.length ?? 0]));
-  const inputs = (step.inputs ?? []).map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, artifacts), null, 2)}`).join("\n");
+  const promptArtifacts = projectArtifacts(step.inputs ?? [], artifacts);
+  const availableInputs = (step.inputs ?? []).filter((key) => lookup(key, promptArtifacts) !== undefined);
+  const input_chars = Object.fromEntries(availableInputs.map((key) => [key, JSON.stringify(lookup(key, promptArtifacts), null, 2).length]));
+  const inputs = availableInputs.map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, promptArtifacts), null, 2)}`).join("\n");
   const suffix = step.outputFormat === "single-line" || step.outputFormat === "json" ? "" : "\n\nOperate in the current repository. Return a concise summary of your work and decisions.";
-  return { text: `${render(prompt, artifacts)}${inputs}${suffix}`, path: promptPath, input_chars };
+  return { text: `${render(prompt, promptArtifacts)}${inputs}${suffix}`, path: promptPath, input_chars };
 }

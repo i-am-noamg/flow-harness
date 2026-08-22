@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execute, makePrompt } from "../src/executor.js";
+import { execute, makePrompt, resolveEffectiveAgentStep } from "../src/executor.js";
 import { loadWorkflow } from "../src/loader.js";
-import type { Workflow } from "../src/types.js";
+import type { AgentStep, Workflow } from "../src/types.js";
 
 async function workspace(scripts: Record<string, string>): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), "flow-code-change-"));
@@ -82,4 +82,48 @@ test("the code-change repair prompt receives only requested command results", as
   assert.match(prompt.text, /lint failure/);
   assert.match(prompt.text, /test failure/);
   assert.doesNotMatch(prompt.text, /hidden (lint|test) stream/);
+});
+
+async function isolatedPrompt(step: Partial<AgentStep>, artifacts: Record<string, unknown>): Promise<Awaited<ReturnType<typeof makePrompt>>> {
+  const root = await mkdtemp(join(tmpdir(), "flow-prompt-inputs-"));
+  try {
+    await writeFile(join(root, "prompt.md"), "declared={{declared}} nested={{nested.visible}} hidden={{hidden}} sibling={{nested.sibling}}");
+    return await makePrompt({ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", ...step }, root, root, artifacts, "workflow");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("agent prompts expose only declared artifacts and declared nested paths", async () => {
+  const result = await isolatedPrompt({ inputs: ["declared", "nested.visible"] }, {
+    declared: "allowed", hidden: "secret", nested: { visible: "shown", sibling: "secret sibling" },
+  });
+
+  assert.match(result.text, /declared=allowed nested=shown hidden= sibling=/);
+  assert.match(result.text, /--- declared ---\n"allowed"/);
+  assert.match(result.text, /--- nested\.visible ---\n"shown"/);
+  assert.doesNotMatch(result.text, /secret/);
+  assert.deepEqual(result.input_chars, { declared: 9, "nested.visible": 7 });
+});
+
+test("agent prompts retain skipped inputs and omit unavailable inputs", async () => {
+  const skipped = { status: "skipped", output: "" };
+  const result = await isolatedPrompt({ inputs: ["skipped", "unavailable"] }, { skipped });
+
+  assert.match(result.text, /--- skipped ---\n\{\n  "status": "skipped",\n  "output": ""\n\}/);
+  assert.doesNotMatch(result.text, /--- unavailable ---|undefined/);
+  assert.deepEqual(result.input_chars, { skipped: JSON.stringify(skipped, null, 2).length });
+});
+
+test("selected variant inputs override parent inputs for prompt visibility", async () => {
+  const step: AgentStep = {
+    id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", inputs: ["parent"],
+    variants: [{ id: "selected", when: "route == true", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", inputs: ["declared"] }],
+  };
+  const effective = resolveEffectiveAgentStep(step, { route: true, parent: "secret", declared: "allowed" })!;
+  const result = await isolatedPrompt(effective.step, { parent: "secret", declared: "allowed" });
+
+  assert.equal(effective.variant?.id, "selected");
+  assert.match(result.text, /declared=allowed/);
+  assert.doesNotMatch(result.text, /secret|--- parent ---/);
 });

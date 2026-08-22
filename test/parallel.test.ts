@@ -13,18 +13,36 @@ function command(id: string, delay: number, parallel = false) {
   return { id, type: "exec" as const, parallel, program: node, args: ["-e", `setTimeout(() => console.log(${JSON.stringify(id)}), ${delay})`] };
 }
 
+const parallelBarrier = [
+  'const { existsSync, writeFileSync } = require("node:fs");',
+  "const [id, ...peers] = process.argv.slice(1);",
+  'writeFileSync(`${id}.ready`, "");',
+  "const wait = new Int32Array(new SharedArrayBuffer(4));",
+  "const deadline = Date.now() + 5_000;",
+  "while (!peers.every((peer) => existsSync(`${peer}.ready`))) {",
+  '  if (Date.now() >= deadline) throw new Error("parallel peer did not start");',
+  "  Atomics.wait(wait, 0, 0, 10);",
+  "}",
+  'writeFileSync(`${id}.done`, "");',
+].join("\n");
+
+function barrierCommand(id: string, peer: string) {
+  return { id, type: "exec" as const, parallel: true, program: node, args: ["-e", parallelBarrier, id, peer], timeout: 10_000 };
+}
+
 test("parallel batches preserve declaration order and wait at barriers", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "flow-parallel-"));
   const workflow: Workflow = {
     name: "parallel",
-    steps: [command("slow", 180, true), command("fast", 180, true), command("after", 1)],
+    steps: [
+      barrierCommand("slow", "fast"),
+      barrierCommand("fast", "slow"),
+      { id: "after", type: "exec", program: node, args: ["-e", 'const { existsSync } = require("node:fs"); if (!existsSync("slow.done") || !existsSync("fast.done")) throw new Error("parallel batch did not finish");'] },
+    ],
   };
-  const started = Date.now();
   const run = await execute({ workflow, root: cwd, cwd, output: "quiet" });
-  const elapsed = Date.now() - started;
   assert.equal(run.status, "succeeded");
   assert.deepEqual(run.steps.map((step) => step.id), ["slow", "fast", "after"]);
-  assert.ok(elapsed < 350, `parallel batch took ${elapsed}ms`);
   const saved = JSON.parse(await readFile(join(cwd, ".flow", "runs", `${run.id}.json`), "utf8"));
   assert.deepEqual(saved.steps.map((step: { id: string }) => step.id), ["slow", "fast", "after"]);
 });

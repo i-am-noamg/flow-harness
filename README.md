@@ -143,7 +143,7 @@ Put reusable workflows in `flows/`. Prompts can sit alongside their flow under `
 
 - Use `agent` steps for inspection, planning, implementation, or other judgment; grant each the smallest necessary `tools` allowlist. The declared allowlist and tools actually called are recorded separately in run evidence.
 - Use `exec` steps for direct commands and `shell` only when shell syntax is necessary.
-- Connect steps with declared `inputs` and `outputs`.
+- Connect steps with declared `inputs` and `outputs`. An agent prompt can interpolate and receives appended artifacts only from its declared `inputs`; a nested input such as `test.output` exposes only that path, and unavailable inputs are omitted.
 - Use `when` for conditional work, `loop` for bounded retries, and `parallel: true` for independent read-only steps.
 - Validate before running: `flow validate flows/my-flow.flow`.
 
