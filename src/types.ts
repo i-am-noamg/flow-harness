@@ -146,6 +146,10 @@ export interface RunMetrics {
 export interface RunContextUsage {
   availability: "available" | "unavailable";
   reason?: string;
+  /** Sum of `tokens` from reported per-agent Pi snapshots; may overlap for shared sessions. */
+  aggregation?: "sum_reported_snapshots";
+  /** Number of per-agent snapshots included in `tokens`. */
+  token_snapshot_count?: number;
   tokens?: number;
 }
 export interface RunAgentMetrics {
@@ -168,7 +172,7 @@ export interface RunAgentMetrics {
   /** Stable assistant toolCall names from persisted agent evidence. */
   actual_tools: string[];
   tool_names: string[];
-  /** Never synthesized from session snapshots; Pi does not expose a run cumulative value. */
+  /** Sum of reported per-agent Pi context snapshots, not a Pi cumulative run value. */
   total_context_usage: RunContextUsage;
   tool_failures: number;
 }

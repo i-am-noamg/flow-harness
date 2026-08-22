@@ -53,13 +53,14 @@ function snapshotContextUsage(session: any): AgentResult["context_usage"] {
   if (typeof session.getContextUsage !== "function") return { availability: "unavailable", reason: "Pi session does not expose getContextUsage" };
   try {
     const usage = session.getContextUsage();
-    if (!usage || typeof usage.tokens !== "number") return { availability: "unavailable", reason: "Pi did not report context tokens" };
-    return {
-      availability: "available",
-      tokens: usage.tokens,
+    if (!usage) return { availability: "unavailable", reason: "Pi did not report context usage" };
+    const snapshot = {
+      ...(typeof usage.tokens === "number" ? { tokens: usage.tokens } : {}),
       ...(typeof usage.contextWindow === "number" ? { context_window: usage.contextWindow } : {}),
       ...(typeof usage.percent === "number" ? { percent: usage.percent } : {}),
     };
+    if (Object.keys(snapshot).length === 0) return { availability: "unavailable", reason: "Pi did not report context usage" };
+    return { availability: "available", ...snapshot };
   } catch {
     return { availability: "unavailable", reason: "Pi context usage snapshot failed" };
   }

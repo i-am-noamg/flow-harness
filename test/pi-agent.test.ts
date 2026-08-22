@@ -54,6 +54,19 @@ test("runAgent records stable tool calls and Pi context snapshots", async () => 
   assert.deepEqual(result.context_usage, { availability: "available", tokens: 123, context_window: 200, percent: 61.5 });
 });
 
+test("runAgent preserves partial Pi context snapshots", async () => {
+  const session: any = {
+    messages: [], thinkingLevel: "low", subscribe() { return () => undefined; },
+    getContextUsage() { return { contextWindow: 200 }; },
+    async prompt() { this.messages.push({ role: "assistant", content: "done", stopReason: "stop" }); },
+  };
+  const shared: AgentSessionHandle = { session, writes: false, effective_tools: ["read"] };
+
+  const result = await runAgent("prompt", process.cwd(), undefined, false, true, shared);
+
+  assert.deepEqual(result.context_usage, { availability: "available", context_window: 200 });
+});
+
 test("runAgent preserves metadata when prompting throws", async () => {
   const session: any = {
     messages: [],

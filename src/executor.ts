@@ -113,6 +113,8 @@ export function updateRunMetadata(run: RunState): void {
   const apis = new Set<string>();
   const tool_names = new Set<string>();
   let tool_failures = 0;
+  let context_usage_tokens = 0;
+  let context_usage_snapshots = 0;
   for (const step of run.steps) {
     if (step.finished_at) step_duration_ms += Math.max(0, Date.parse(step.finished_at) - Date.parse(step.started_at));
     const agentResult = step.result as any;
@@ -135,6 +137,11 @@ export function updateRunMetadata(run: RunState): void {
       for (const name of agentResult.tool_names ?? []) {
         tool_names.add(name);
         actual_tools.add(name);
+      }
+      const contextUsage = agentResult.context_usage;
+      if (contextUsage?.availability === "available" && typeof contextUsage.tokens === "number") {
+        context_usage_tokens += contextUsage.tokens;
+        context_usage_snapshots++;
       }
       tool_failures += agentResult.tool_failures ?? 0;
     }
@@ -162,12 +169,15 @@ export function updateRunMetadata(run: RunState): void {
     if (promptTokens > 0) usage.cache_hit_rate = usage.cacheRead / promptTokens;
     run.usage = usage;
   }
+  const total_context_usage = context_usage_snapshots > 0
+    ? { availability: "available" as const, aggregation: "sum_reported_snapshots" as const, token_snapshot_count: context_usage_snapshots, tokens: context_usage_tokens }
+    : { availability: "unavailable" as const, reason: "Pi did not report context tokens in any agent snapshot" };
   run.agent_metrics = {
     agent_steps, total_agent_duration_ms, prompt_chars, declared_input_chars, output_chars, repair_iterations,
     requested_models: [...requested_models].sort(), turns, tool_calls, retries,
     providers: [...providers].sort(), apis: [...apis].sort(), response_models: [...response_models].sort(), contexts: [...contexts].sort(),
     effective_tools: [...effective_tools].sort(), actual_tools: [...actual_tools].sort(), tool_names: [...tool_names].sort(), tool_failures,
-    total_context_usage: { availability: "unavailable", reason: "Pi exposes per-agent session snapshots, not a cumulative run context total" },
+    total_context_usage,
   };
   run.metrics = { wall_duration_ms: Math.max(0, Date.parse(run.finished_at!) - Date.parse(run.started_at)), step_duration_ms };
 }

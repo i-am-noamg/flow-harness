@@ -13,7 +13,7 @@ function agent(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test("run agent metadata aggregates stable evidence without fabricating context totals", () => {
+test("run agent metadata sums reported context snapshots and documents its limitation", () => {
   const run: RunState = {
     id: "run", workflow: "workflow", cwd: process.cwd(), started_at: "2025-01-01T00:00:00.000Z", finished_at: "2025-01-01T00:00:05.000Z", status: "succeeded",
     steps: [
@@ -29,6 +29,6 @@ test("run agent metadata aggregates stable evidence without fabricating context 
     agent_steps: 3, total_agent_duration_ms: 4500, prompt_chars: 30, declared_input_chars: 15, output_chars: 20, repair_iterations: 1,
     requested_models: ["repair-model", "requested-model"], turns: 3, tool_calls: 3, retries: 0, providers: [], apis: [], response_models: ["response-model"], contexts: [],
     effective_tools: ["edit", "grep", "read"], actual_tools: ["edit", "read"], tool_names: ["edit", "read"], tool_failures: 0,
-    total_context_usage: { availability: "unavailable", reason: "Pi exposes per-agent session snapshots, not a cumulative run context total" },
+    total_context_usage: { availability: "available", aggregation: "sum_reported_snapshots", token_snapshot_count: 3, tokens: 300 },
   });
 });

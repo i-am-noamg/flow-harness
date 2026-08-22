@@ -84,9 +84,9 @@ Flow validates the workflow before it runs. It persists full run evidence—incl
 
 ### Agent execution metrics
 
-Final run evidence includes per-agent prompt, declared-input, and output character counts; requested and response models; duration in seconds; Pi token usage; and a post-prompt Pi context snapshot when Pi reports context tokens. Run aggregates include the corresponding character totals, summed agent duration in milliseconds, model sets, stable effective and actually-called tool sets, and `repair_iterations` (non-skipped executions of a loop child declared as `repair`). Character counts are not token counts.
+Final run evidence includes per-agent prompt, declared-input, and output character counts; requested and response models; duration in seconds; Pi token usage; and a post-prompt Pi context snapshot when Pi reports context data. Run aggregates include the corresponding character totals, summed agent duration in milliseconds, model sets, stable effective and actually-called tool sets, and `repair_iterations` (non-skipped executions of a loop child declared as `repair`). Character counts are not token counts.
 
-Effective tools come from the persisted declared Pi allowlist; actual tools come only from Pi assistant `toolCall` evidence. Flow does not infer tools, skills, or context files from text. Pi exposes session snapshots rather than a genuine cumulative run context value, so `total_context_usage` is explicitly unavailable rather than estimated or summed (which would be incorrect for shared sessions).
+Effective tools come from the persisted declared Pi allowlist; actual tools come only from Pi assistant `toolCall` evidence. Flow does not infer tools, skills, or context files from text. `total_context_usage` is the `sum_reported_snapshots` aggregate of Pi-reported per-agent context-token snapshots and records how many snapshots contributed. It is not a genuine cumulative run-context value: repeated snapshots, including those from shared sessions, can overlap. It remains unavailable when Pi reports no context tokens; per-agent snapshots retain any other Pi-reported context fields.
 
 See the complete, production-ready examples: [`code-change`](flows/code-change.flow) and [`git-commit`](flows/git-commit.flow).
 
