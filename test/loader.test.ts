@@ -96,13 +96,13 @@ test("agent tools rejects invalid allowlists on steps and variants", () => {
   }
 });
 
-test("output expressions validate paths, fallbacks, and explicit conditions", () => {
+test("output expressions validate scalar values, boolean expressions, and if selection", () => {
   assert.doesNotThrow(() => validateWorkflow({
     name: "outputs",
-    outputs: { value: "missing.value || false", pushed: "condition(push.status == succeeded || force_push.status == succeeded)" },
+    outputs: { value: "if(msg != \"\", msg, generated_message)", pushed: "push.status == succeeded || force_push.status == succeeded" },
     steps: [{ id: "step", type: "exec", program: "echo" }],
   }));
-  for (const expression of ["value ||", "condition(ready)", "value > 1"] as const) {
+  for (const expression of ["value || fallback", "condition(ready == true)", "if(ready, value, fallback)", "if(ready == true, value)", "value > 1"] as const) {
     assert.throws(() => validateWorkflow({
       name: "invalid-output",
       outputs: { value: expression },

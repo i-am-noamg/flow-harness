@@ -62,8 +62,14 @@ function splitTopLevel(expression: string, operator: "&&" | "||"): string[] {
   const parts: string[] = [];
   let start = 0;
   let depth = 0;
+  let quote: "'" | "\"" | undefined;
   for (let index = 0; index < expression.length; index++) {
     const character = expression[index];
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === "'" || character === "\"") { quote = character; continue; }
     if (character === "(") depth++;
     else if (character === ")") {
       depth--;
@@ -75,7 +81,7 @@ function splitTopLevel(expression: string, operator: "&&" | "||"): string[] {
       index += operator.length - 1;
     }
   }
-  if (depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
+  if (quote || depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
   parts.push(expression.slice(start).trim());
   if (parts.some((part) => !part)) throw new Error(`Invalid condition: ${expression}`);
   return parts;
@@ -84,12 +90,19 @@ function splitTopLevel(expression: string, operator: "&&" | "||"): string[] {
 function unwrapParentheses(expression: string): string {
   if (!expression.startsWith("(") || !expression.endsWith(")")) return expression;
   let depth = 0;
+  let quote: "'" | "\"" | undefined;
   for (let index = 0; index < expression.length; index++) {
-    if (expression[index] === "(") depth++;
-    else if (expression[index] === ")") depth--;
+    const character = expression[index];
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === "'" || character === "\"") { quote = character; continue; }
+    if (character === "(") depth++;
+    else if (character === ")") depth--;
     if (depth === 0 && index < expression.length - 1) return expression;
   }
-  if (depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
+  if (quote || depth !== 0) throw new Error(`Unbalanced condition: ${expression}`);
   return expression.slice(1, -1).trim();
 }
 

@@ -1,12 +1,12 @@
 import { evaluateCondition, validateCondition } from "./conditions.js";
 
 export type OutputLiteral = string | number | boolean;
-export type OutputExpression = { kind: "fallback"; candidates: OutputValueExpression[] };
+export type OutputExpression = OutputValueExpression;
 export type OutputValueExpression =
   | { kind: "path"; path: string }
   | { kind: "literal"; value: OutputLiteral }
-  | { kind: "comparison"; path: string; operator: "==" | "!="; expected: OutputLiteral }
-  | { kind: "condition"; expression: string };
+  | { kind: "condition"; expression: string }
+  | { kind: "if"; condition: string; whenTrue: OutputValueExpression; whenFalse: OutputValueExpression };
 
 export class OutputResolutionError extends Error {
   constructor(readonly output: string, readonly expression: string, readonly path?: string, detail?: string) {
@@ -18,80 +18,63 @@ export class OutputResolutionError extends Error {
 const PATH = /^[\w.-]+$/;
 
 export function parseOutputExpression(expression: string): OutputExpression {
-  const candidates = splitTopLevel(expression.trim(), "||").map(parseValueExpression);
-  return { kind: "fallback", candidates };
+  return parseValueExpression(expression.trim());
 }
 
 export function evaluateOutputExpression(output: string, expression: string, lookup: (path: string) => unknown): unknown {
   let parsed: OutputExpression;
-  try { parsed = parseOutputExpression(expression); } catch (error) {
+  try {
+    parsed = parseOutputExpression(expression);
+  } catch (error) {
     throw new OutputResolutionError(output, expression, undefined, error instanceof Error ? error.message : String(error));
   }
-  let unresolvedPath: string | undefined;
-  for (const candidate of parsed.candidates) {
-    const result = evaluateValueExpression(candidate, lookup);
-    if (result.path) unresolvedPath ??= result.path;
-    if (result.value !== undefined) return result.value;
+  try {
+    return evaluateValueExpression(output, expression, parsed, lookup);
+  } catch (error) {
+    if (error instanceof OutputResolutionError) throw error;
+    throw new OutputResolutionError(output, expression, undefined, error instanceof Error ? error.message : String(error));
   }
-  throw new OutputResolutionError(output, expression, unresolvedPath);
 }
 
 function parseValueExpression(expression: string): OutputValueExpression {
-  if (!expression) throw new Error("Output expression contains an empty fallback candidate");
-  if (expression.startsWith("condition(")) {
-    if (!expression.endsWith(")")) throw new Error(`Invalid output condition: ${expression}`);
-    const condition = expression.slice("condition(".length, -1).trim();
-    if (!condition) throw new Error("Output condition must not be empty");
+  if (!expression) throw new Error("Output expression must not be empty");
+  const ifArguments = parseIfArguments(expression);
+  if (ifArguments) {
+    const [condition, whenTrue, whenFalse] = ifArguments;
+    if (!condition || !whenTrue || !whenFalse) throw new Error("if(condition, when_true, when_false) requires three non-empty arguments");
     validateCondition(condition);
-    return { kind: "condition", expression: condition };
+    return { kind: "if", condition, whenTrue: parseValueExpression(whenTrue), whenFalse: parseValueExpression(whenFalse) };
   }
-  const comparison = expression.match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
-  if (comparison) {
-    const expected = parseLiteral(comparison[3].trim(), true);
-    if (expected === undefined) throw new Error(`Invalid output comparison value: ${comparison[3].trim()}`);
-    return { kind: "comparison", path: comparison[1], operator: comparison[2] as "==" | "!=", expected };
-  }
-  const literal = parseLiteral(expression, false);
+  const literal = parseLiteral(expression);
   if (literal !== undefined) return { kind: "literal", value: literal };
   if (PATH.test(expression)) return { kind: "path", path: expression };
-  throw new Error(`Invalid output expression: ${expression}`);
+  validateCondition(expression);
+  return { kind: "condition", expression };
 }
 
-function parseLiteral(value: string, allowBareString: boolean): OutputLiteral | undefined {
+function parseLiteral(value: string): OutputLiteral | undefined {
   if (value === "true") return true;
   if (value === "false") return false;
   if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
   if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1);
-  if (allowBareString && PATH.test(value)) return value;
-  if (allowBareString) throw new Error(`Invalid output comparison value: ${value}`);
   return undefined;
 }
 
-function evaluateValueExpression(expression: OutputValueExpression, lookup: (path: string) => unknown): { value: unknown; path?: string } {
-  if (expression.kind === "literal") return { value: expression.value };
-  if (expression.kind === "path") {
-    const value = lookup(expression.path);
-    return value === undefined ? { value, path: expression.path } : { value };
-  }
-  if (expression.kind === "comparison") {
-    const actual = lookup(expression.path);
-    return actual === undefined ? { value: undefined, path: expression.path } : { value: expression.operator === "==" ? actual === expression.expected : actual !== expression.expected };
-  }
-  const evaluation = evaluateCondition(expression.expression, lookup);
-  if (evaluation.kind === "true") return { value: true };
-  if (evaluation.kind === "false") return { value: false };
-  if (evaluation.kind === "unknown") return { value: undefined, path: evaluation.path };
-  if (evaluation.kind === "invalid") throw new Error(evaluation.error);
-  throw new Error(`Invalid output condition: ${expression.expression}`);
+function parseIfArguments(expression: string): [string, string, string] | undefined {
+  if (!expression.startsWith("if(")) return undefined;
+  if (!expression.endsWith(")")) throw new Error(`Invalid output expression: ${expression}`);
+  const arguments_ = splitArguments(expression.slice(3, -1), expression);
+  if (arguments_.length !== 3) throw new Error("if(condition, when_true, when_false) requires exactly three arguments");
+  return arguments_ as [string, string, string];
 }
 
-function splitTopLevel(expression: string, operator: "||"): string[] {
-  const parts: string[] = [];
+function splitArguments(value: string, original: string): string[] {
+  const arguments_: string[] = [];
   let start = 0;
   let depth = 0;
   let quote: "'" | "\"" | undefined;
-  for (let index = 0; index < expression.length; index++) {
-    const character = expression[index];
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
     if (quote) {
       if (character === quote) quote = undefined;
       continue;
@@ -99,17 +82,34 @@ function splitTopLevel(expression: string, operator: "||"): string[] {
     if (character === "'" || character === "\"") { quote = character; continue; }
     if (character === "(") depth++;
     else if (character === ")") {
-      depth--;
-      if (depth < 0) throw new Error(`Unbalanced output expression: ${expression}`);
-    }
-    if (depth === 0 && expression.startsWith(operator, index)) {
-      parts.push(expression.slice(start, index).trim());
-      start = index + operator.length;
-      index++;
+      if (--depth < 0) throw new Error(`Unbalanced output expression: ${original}`);
+    } else if (character === "," && depth === 0) {
+      arguments_.push(value.slice(start, index).trim());
+      start = index + 1;
     }
   }
-  if (quote || depth !== 0) throw new Error(`Unbalanced output expression: ${expression}`);
-  parts.push(expression.slice(start).trim());
-  if (parts.some((part) => !part)) throw new Error(`Invalid output expression: ${expression}`);
-  return parts;
+  if (quote || depth !== 0) throw new Error(`Unbalanced output expression: ${original}`);
+  arguments_.push(value.slice(start).trim());
+  return arguments_;
+}
+
+function evaluateValueExpression(output: string, source: string, expression: OutputValueExpression, lookup: (path: string) => unknown): unknown {
+  if (expression.kind === "literal") return expression.value;
+  if (expression.kind === "path") {
+    const value = lookup(expression.path);
+    if (value === undefined) throw new OutputResolutionError(output, source, expression.path);
+    return value;
+  }
+  if (expression.kind === "condition") return evaluateBooleanExpression(output, source, expression.expression, lookup);
+  const selected = evaluateBooleanExpression(output, source, expression.condition, lookup) ? expression.whenTrue : expression.whenFalse;
+  return evaluateValueExpression(output, source, selected, lookup);
+}
+
+function evaluateBooleanExpression(output: string, source: string, expression: string, lookup: (path: string) => unknown): boolean {
+  const evaluation = evaluateCondition(expression, lookup);
+  if (evaluation.kind === "true") return true;
+  if (evaluation.kind === "false") return false;
+  if (evaluation.kind === "unknown") throw new OutputResolutionError(output, source, evaluation.path);
+  if (evaluation.kind === "invalid") throw new Error(evaluation.error);
+  throw new Error(`Invalid output condition: ${expression}`);
 }

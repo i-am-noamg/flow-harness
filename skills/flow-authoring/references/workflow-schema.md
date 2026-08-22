@@ -95,22 +95,23 @@ Consecutive `parallel: true` steps form a read-only batch. They must be independ
 Each output declaration is a string using this grammar:
 
 ```text
-output = value ("||" value)*
-value = path | literal | comparison | "condition(" condition ")"
+output = value | condition | "if(" condition "," value "," value ")"
+value = path | literal
 path = identifier ("." identifier)*
 literal = true | false | number | quoted string
+condition = comparison | "(" condition ")" | condition "&&" condition | condition "||" condition
 comparison = path ("==" | "!=") (literal | identifier)
 ```
 
-`||` is an ordered defined-value fallback: it returns the first value that is not `undefined`. It preserves intentional `false`, `0`, and `""`; it is not boolean OR. For boolean logic, use `condition(...)`, for example:
+`&&`, `||`, and parentheses have ordinary boolean-expression semantics. Use `if` to select a value; only the selected branch is resolved, and values are returned exactly, including `false`, `0`, and `""`:
 
 ```yaml
 outputs:
-  commit_message: msg || generated_commit_message
-  pushed: condition(push.status == succeeded || force_push.status == succeeded)
+  commit_message: if(msg != "", msg, generated_commit_message)
+  pushed: push.status == succeeded || force_push.status == succeeded
 ```
 
-Paths and comparisons whose path is unavailable are unresolved candidates, so a later fallback may still supply the value. If no candidate resolves, or an expression is invalid, loading fails for syntax errors and runtime resolution marks the run `failed`. The persisted run includes `output_error` with the output name, expression, unresolved path when available, and error message.
+There is no fallback/coalesce syntax and no `condition(...)` wrapper. An unavailable direct path, selected `if` branch, or condition path causes runtime resolution to mark the run `failed`. Syntax errors fail during loading. The persisted run includes `output_error` with the output name, expression, unresolved path when available, and error message.
 
 ## Conditions
 

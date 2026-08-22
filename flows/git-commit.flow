@@ -28,12 +28,12 @@ inputs:
     description: Branch name to create; if omitted with --new-branch, generate one.
 
 outputs:
-  commit_message: msg || generated_commit_message
+  commit_message: if(msg != "", msg, generated_commit_message)
   committed: commit_details.status == succeeded
   commit_hash: commit_details.commit_hash
   branch: current_branch.branch
   committed_files: commit_details.committed_files
-  pushed: condition(push.status == succeeded || force_push.status == succeeded)
+  pushed: push.status == succeeded || force_push.status == succeeded
 
 steps:
   - id: add_all
