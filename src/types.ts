@@ -142,6 +142,12 @@ export interface RunAgentMetrics {
   tool_names: string[];
   tool_failures: number;
 }
+export interface OutputResolutionErrorEvidence {
+  output: string;
+  expression: string;
+  path?: string;
+  error: string;
+}
 export interface RunState {
   id: string;
   workflow: string;
@@ -154,6 +160,7 @@ export interface RunState {
   metrics?: RunMetrics;
   agent_metrics?: RunAgentMetrics;
   outputs?: Record<string, unknown>;
+  output_error?: OutputResolutionErrorEvidence;
 }
 export interface FlowInputSummary { name: string; type: WorkflowInput["type"]; default?: string | boolean; description?: string; }
 export interface FlowCatalogEntry { name: string; path: string; temporary?: boolean; description?: string; inputs: FlowInputSummary[]; outputs: string[]; }

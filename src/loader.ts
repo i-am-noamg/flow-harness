@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import YAML from "yaml";
 import { validateCondition as validateConditionSyntax } from "./conditions.js";
+import { parseOutputExpression } from "./outputs.js";
 import type { Workflow, WorkflowInput, Step } from "./types.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -43,7 +44,10 @@ export function validateWorkflow(w: Workflow): void {
   if (!Array.isArray(w.steps) || w.steps.length === 0) throw new Error("Workflow requires at least one step");
   if (w.outputs !== undefined) {
     if (!w.outputs || typeof w.outputs !== "object" || Array.isArray(w.outputs)) throw new Error("Workflow outputs must be an object");
-    for (const [name, expression] of Object.entries(w.outputs)) if (typeof expression !== "string" || !expression.trim()) throw new Error(`Invalid output expression for ${name}`);
+    for (const [name, expression] of Object.entries(w.outputs)) {
+      if (typeof expression !== "string" || !expression.trim()) throw new Error(`Invalid output expression for ${name}`);
+      try { parseOutputExpression(expression); } catch (error) { throw new Error(`Invalid output expression for ${name}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
   }
   if (w.inputs !== undefined) {
     if (!w.inputs || typeof w.inputs !== "object" || Array.isArray(w.inputs)) throw new Error("Workflow inputs must be an object");

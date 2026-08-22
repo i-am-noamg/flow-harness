@@ -33,7 +33,7 @@ outputs:
   commit_hash: commit_details.commit_hash
   branch: current_branch.branch
   committed_files: commit_details.committed_files
-  pushed: push.status == succeeded || force_push.status == succeeded
+  pushed: condition(push.status == succeeded || force_push.status == succeeded)
 
 steps:
   - id: add_all

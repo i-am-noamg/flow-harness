@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from "node:path";
 import { runExec, runShell } from "./command.js";
 import { stripAnsi } from "./ansi.js";
 import { evaluateCondition } from "./conditions.js";
+import { evaluateOutputExpression, OutputResolutionError } from "./outputs.js";
 import { AgentExecutionError, createAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
@@ -43,20 +44,24 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   await store.save(run);
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
   const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions };
-  const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions), context);
-  if (control !== "continue") { run.status = control === "stop" ? "succeeded" : "failed"; run.outputs = resolveWorkflowOutputs(workflow, artifacts); run.finished_at = new Date().toISOString(); updateRunMetadata(run); await store.save(run); disposeAgentSessions(agentSessions); return run; }
-  const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
-  const failed = run.steps.some((result) => {
-    const step = topLevelSteps.get(result.id);
-    return step !== undefined && !step.stopWhen && result.status === "failed" && (result.type === "loop" || result.type === "shell" || result.type === "exec");
-  });
-  run.status = failed ? "failed" : "succeeded";
-  run.outputs = resolveWorkflowOutputs(workflow, artifacts);
-  run.finished_at = new Date().toISOString();
-  updateRunMetadata(run);
-  await store.save(run);
-  disposeAgentSessions(agentSessions);
-  if (!quiet) console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`); return run;
+  try {
+    const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions), context);
+    let status: RunState["status"];
+    if (control !== "continue") status = control === "stop" ? "succeeded" : "failed";
+    else {
+      const topLevelSteps = new Map(workflow.steps.map((step) => [step.id, step]));
+      const failed = run.steps.some((result) => {
+        const step = topLevelSteps.get(result.id);
+        return step !== undefined && !step.stopWhen && result.status === "failed" && (result.type === "loop" || result.type === "shell" || result.type === "exec");
+      });
+      status = failed ? "failed" : "succeeded";
+    }
+    await finalizeRun(run, store, workflow, artifacts, status);
+    if (!quiet) console.log(`\n${run.status === "succeeded" ? "✓" : "✗"} completed ${run.id}`);
+    return run;
+  } finally {
+    disposeAgentSessions(agentSessions);
+  }
 }
 
 type StepControl = "continue" | "stop" | "fail";
@@ -65,6 +70,25 @@ type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: Artifac
 function disposeAgentSessions(sessions: Map<string, AgentSessionHandle>): void {
   for (const handle of sessions.values()) handle.session.dispose?.();
   sessions.clear();
+}
+
+async function finalizeRun(run: RunState, store: RunStoreLike, workflow: Workflow, artifacts: ArtifactMap, status: RunState["status"]): Promise<void> {
+  run.status = status;
+  try {
+    run.outputs = resolveWorkflowOutputs(workflow, artifacts);
+  } catch (error) {
+    run.status = "failed";
+    const resolution = error instanceof OutputResolutionError ? error : undefined;
+    run.output_error = {
+      output: resolution?.output ?? "unknown",
+      expression: resolution?.expression ?? "",
+      ...(resolution?.path ? { path: resolution.path } : {}),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  run.finished_at = new Date().toISOString();
+  updateRunMetadata(run);
+  await store.save(run);
 }
 
 function updateRunMetadata(run: RunState): void {
@@ -351,25 +375,9 @@ function normalizeStepOutput(value: string, format: "text" | "single-line" | "li
 function resolveWorkflowOutputs(workflow: Workflow, artifacts: ArtifactMap): Record<string, unknown> {
   const outputs: Record<string, unknown> = {};
   for (const [name, expression] of Object.entries(workflow.outputs ?? {})) {
-    const values = expression.split(/\s*\|\|\s*/).map((candidate) => evaluateValue(candidate.trim(), artifacts));
-    const value = values.find((candidate) => Boolean(candidate)) ?? values.find((candidate) => candidate !== undefined && candidate !== "");
-    if (value !== undefined) outputs[name] = value;
+    outputs[name] = evaluateOutputExpression(name, expression, (path) => lookup(path, artifacts));
   }
   return outputs;
-}
-
-function evaluateValue(expression: string, artifacts: ArtifactMap): unknown {
-  if (expression === "true") return true;
-  if (expression === "false") return false;
-  const comparison = expression.match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
-  if (!comparison) return lookup(expression, artifacts);
-  const actual = lookup(comparison[1], artifacts);
-  if (actual === undefined) return undefined;
-  let expected: unknown = comparison[3].trim().replace(/^['"]|['"]$/g, "");
-  if (expected === "true") expected = true;
-  else if (expected === "false") expected = false;
-  else if (/^-?\d+(\.\d+)?$/.test(String(expected))) expected = Number(expected);
-  return comparison[2] === "==" ? actual === expected : actual !== expected;
 }
 
 function findPromptPath(prompt: string, root: string, cwd: string, workflowName: string): string {

@@ -16,7 +16,7 @@ Each item should be independently implementable as a focused commit.
 - [x] Make artifact passing explicit: ensure agent prompts receive only artifacts listed in the step's `inputs` field, and add tests covering omitted, nested, skipped, and unavailable inputs. Do not impose truncation or hard size limits; users should be able to choose their own context tradeoffs in workflow definitions.
 - [x] Make condition handling deterministic: distinguish a known `false` condition from an unknown artifact or unsupported expression instead of silently skipping or retrying. Define and test the resulting failure behavior.
 - [x] Validate `when` and `stopWhen` expressions when loading a workflow. This is a fail-fast syntax check only; evaluation still happens during execution after artifacts exist. Share the condition grammar/parser with `until` validation so all three condition types behave consistently.
-- [ ] Make workflow output expressions explicit and type-safe, with defined handling for falsey values. For example, `pushed: push.status == succeeded || force_push.status == succeeded` currently selects the first truthy candidate; a future implementation should preserve an intentional `false`, `0`, or empty string instead of treating it as missing.
+- [x] Make workflow output expressions explicit and type-safe, with defined handling for falsey values. For example, `pushed: push.status == succeeded || force_push.status == succeeded` currently selects the first truthy candidate; a future implementation should preserve an intentional `false`, `0`, or empty string instead of treating it as missing.
 
 ## `code-change` flow
 

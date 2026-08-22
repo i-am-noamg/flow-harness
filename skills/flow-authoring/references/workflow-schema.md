@@ -90,6 +90,28 @@ Use `exec` for a program and argument list. Use `shell` only for pipes, redirect
 
 Consecutive `parallel: true` steps form a read-only batch. They must be independent, cannot be shell steps or loops, and writing agents cannot run in parallel. The next unmarked step is a barrier.
 
+## Outputs
+
+Each output declaration is a string using this grammar:
+
+```text
+output = value ("||" value)*
+value = path | literal | comparison | "condition(" condition ")"
+path = identifier ("." identifier)*
+literal = true | false | number | quoted string
+comparison = path ("==" | "!=") (literal | identifier)
+```
+
+`||` is an ordered defined-value fallback: it returns the first value that is not `undefined`. It preserves intentional `false`, `0`, and `""`; it is not boolean OR. For boolean logic, use `condition(...)`, for example:
+
+```yaml
+outputs:
+  commit_message: msg || generated_commit_message
+  pushed: condition(push.status == succeeded || force_push.status == succeeded)
+```
+
+Paths and comparisons whose path is unavailable are unresolved candidates, so a later fallback may still supply the value. If no candidate resolves, or an expression is invalid, loading fails for syntax errors and runtime resolution marks the run `failed`. The persisted run includes `output_error` with the output name, expression, unresolved path when available, and error message.
+
 ## Conditions
 
 Conditions support comparisons using `==` and `!=`, combined with `&&` and `||`, for example:
