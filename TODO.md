@@ -36,7 +36,7 @@ These skills should ship with the Pi flow extension, alongside the flow tools, r
 
 ## Pi integration and presentation
 
-- [ ] Let harness-mode users manually run a flow by addressing it as `$flow-name`, with a clear syntax or interactive prompt for supplying its declared input fields; validate required inputs and present the bounded run result with an inspection path.
+- [x] Let harness-mode users manually run a flow by addressing it as `$flow-name`, with a clear syntax or interactive prompt for supplying its declared input fields; validate required inputs and present the bounded run result with an inspection path.
 - [ ] Rewrite the extension's injected prompt to be clearer and more concise: explain the flow tools, when to use them, input conventions, output semantics, and run-inspection path without duplicating README material. Consider writing the available flows and how to use them so the agent won't need to run list_flows at the start every time.
 - [x] Improve `list_flows` output so it is compact and immediately actionable: include a one-line purpose, input types and explicit defaults, and declared outputs without noisy schema repetition.
 - [ ] Improve flow output presentation so results are concise and consistently structured, while making failures, changed files, status, and the run-inspection command easy to find.
