@@ -48,6 +48,23 @@ function emptyUsage(): AgentUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 }
 
+/** Capture only the stable Pi session snapshot; it is not cumulative run usage. */
+function snapshotContextUsage(session: any): AgentResult["context_usage"] {
+  if (typeof session.getContextUsage !== "function") return { availability: "unavailable", reason: "Pi session does not expose getContextUsage" };
+  try {
+    const usage = session.getContextUsage();
+    if (!usage || typeof usage.tokens !== "number") return { availability: "unavailable", reason: "Pi did not report context tokens" };
+    return {
+      availability: "available",
+      tokens: usage.tokens,
+      ...(typeof usage.contextWindow === "number" ? { context_window: usage.contextWindow } : {}),
+      ...(typeof usage.percent === "number" ? { percent: usage.percent } : {}),
+    };
+  } catch {
+    return { availability: "unavailable", reason: "Pi context usage snapshot failed" };
+  }
+}
+
 /** Resolve an agent's declared tool allowlist, preserving explicit empty lists. */
 export function resolveEffectiveTools(tools: string[] | undefined, writes = false): string[] {
   if (tools !== undefined) return tools;
@@ -102,6 +119,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     }
   });
   let promptError: unknown;
+  let context_usage: AgentResult["context_usage"];
   try {
     await session.prompt(prompt);
   } catch (error) {
@@ -109,6 +127,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
   } finally {
     unsubscribe?.();
     if (section && !quiet) process.stdout.write("\n");
+    context_usage = snapshotContextUsage(session);
     if (!shared) session.dispose?.();
   }
   const messages = session.messages ?? session.agent?.state?.messages ?? [];
@@ -158,9 +177,11 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     response_model,
     thinking_level,
     prompt_chars: prompt.length,
+    output_chars: output.length,
     prompt_path: promptPath,
     input_chars,
     context_id,
+    context_usage: context_usage!,
     turns: assistants.length,
     tool_calls,
     retries,

@@ -56,6 +56,13 @@ export interface AgentUsage {
   cache_hit_rate?: number;
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 }
+export interface AgentContextUsage {
+  availability: "available" | "unavailable";
+  reason?: string;
+  tokens?: number;
+  context_window?: number;
+  percent?: number;
+}
 export interface AgentTurnMetrics {
   api?: string;
   provider?: string;
@@ -80,9 +87,12 @@ export interface AgentResult {
   error_message?: string;
   thinking_level: string;
   prompt_chars: number;
+  output_chars: number;
   prompt_path: string;
   input_chars: Record<string, number>;
   context_id?: string;
+  /** Pi-reported post-prompt session snapshot; not a cumulative run total. */
+  context_usage: AgentContextUsage;
   turns: number;
   tool_calls: number;
   retries: number;
@@ -116,6 +126,9 @@ export interface WorkspaceSnapshot {
 }
 export interface StepResult {
   id: string;
+  /** Declared workflow step ID; differs from id for loop children. */
+  declared_id: string;
+  loop_id?: string;
   type: StepType;
   status: "running" | "succeeded" | "failed" | "skipped";
   started_at: string;
@@ -130,8 +143,19 @@ export interface RunMetrics {
   wall_duration_ms: number;
   step_duration_ms: number;
 }
+export interface RunContextUsage {
+  availability: "available" | "unavailable";
+  reason?: string;
+  tokens?: number;
+}
 export interface RunAgentMetrics {
   agent_steps: number;
+  total_agent_duration_ms: number;
+  prompt_chars: number;
+  declared_input_chars: number;
+  output_chars: number;
+  repair_iterations: number;
+  requested_models: string[];
   turns: number;
   tool_calls: number;
   retries: number;
@@ -139,7 +163,13 @@ export interface RunAgentMetrics {
   apis: string[];
   response_models: string[];
   contexts: string[];
+  /** Stable declared Pi tool allowlists from persisted agent evidence. */
+  effective_tools: string[];
+  /** Stable assistant toolCall names from persisted agent evidence. */
+  actual_tools: string[];
   tool_names: string[];
+  /** Never synthesized from session snapshots; Pi does not expose a run cumulative value. */
+  total_context_usage: RunContextUsage;
   tool_failures: number;
 }
 export interface OutputResolutionErrorEvidence {

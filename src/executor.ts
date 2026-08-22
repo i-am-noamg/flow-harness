@@ -91,17 +91,25 @@ async function finalizeRun(run: RunState, store: RunStoreLike, workflow: Workflo
   await store.save(run);
 }
 
-function updateRunMetadata(run: RunState): void {
+export function updateRunMetadata(run: RunState): void {
   const usage: AgentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
   let hasUsage = false;
   let step_duration_ms = 0;
   let agent_steps = 0;
+  let total_agent_duration_ms = 0;
+  let prompt_chars = 0;
+  let declared_input_chars = 0;
+  let output_chars = 0;
+  let repair_iterations = 0;
   let turns = 0;
   let tool_calls = 0;
   let retries = 0;
   const providers = new Set<string>();
+  const requested_models = new Set<string>();
   const response_models = new Set<string>();
   const contexts = new Set<string>();
+  const effective_tools = new Set<string>();
+  const actual_tools = new Set<string>();
   const apis = new Set<string>();
   const tool_names = new Set<string>();
   let tool_failures = 0;
@@ -110,14 +118,24 @@ function updateRunMetadata(run: RunState): void {
     const agentResult = step.result as any;
     if (step.type === "agent" && agentResult) {
       agent_steps++;
+      total_agent_duration_ms += Math.max(0, (agentResult.duration ?? 0) * 1000);
+      prompt_chars += agentResult.prompt_chars ?? 0;
+      declared_input_chars += Object.values(agentResult.input_chars ?? {}).reduce((total: number, chars: unknown) => total + (typeof chars === "number" ? chars : 0), 0);
+      output_chars += agentResult.output_chars ?? 0;
+      if (step.declared_id === "repair" && step.loop_id && step.status !== "skipped") repair_iterations++;
       turns += agentResult.turns ?? 0;
       tool_calls += agentResult.tool_calls ?? 0;
       retries += agentResult.retries ?? 0;
+      if (agentResult.model) requested_models.add(agentResult.model);
       if (agentResult.provider) providers.add(agentResult.provider);
       if (agentResult.api) apis.add(agentResult.api);
       if (agentResult.response_model) response_models.add(agentResult.response_model);
       if (agentResult.context_id) contexts.add(agentResult.context_id);
-      for (const name of agentResult.tool_names ?? []) tool_names.add(name);
+      for (const name of agentResult.effective_tools ?? []) effective_tools.add(name);
+      for (const name of agentResult.tool_names ?? []) {
+        tool_names.add(name);
+        actual_tools.add(name);
+      }
       tool_failures += agentResult.tool_failures ?? 0;
     }
     const stepUsage = agentResult?.usage as AgentUsage | undefined;
@@ -144,7 +162,13 @@ function updateRunMetadata(run: RunState): void {
     if (promptTokens > 0) usage.cache_hit_rate = usage.cacheRead / promptTokens;
     run.usage = usage;
   }
-  run.agent_metrics = { agent_steps, turns, tool_calls, retries, providers: [...providers].sort(), apis: [...apis].sort(), response_models: [...response_models].sort(), contexts: [...contexts].sort(), tool_names: [...tool_names].sort(), tool_failures };
+  run.agent_metrics = {
+    agent_steps, total_agent_duration_ms, prompt_chars, declared_input_chars, output_chars, repair_iterations,
+    requested_models: [...requested_models].sort(), turns, tool_calls, retries,
+    providers: [...providers].sort(), apis: [...apis].sort(), response_models: [...response_models].sort(), contexts: [...contexts].sort(),
+    effective_tools: [...effective_tools].sort(), actual_tools: [...actual_tools].sort(), tool_names: [...tool_names].sort(), tool_failures,
+    total_context_usage: { availability: "unavailable", reason: "Pi exposes per-agent session snapshots, not a cumulative run context total" },
+  };
   run.metrics = { wall_duration_ms: Math.max(0, Date.parse(run.finished_at!) - Date.parse(run.started_at)), step_duration_ms };
 }
 
@@ -181,8 +205,8 @@ async function executeParallelStep(step: Step, context: ExecutionContext): Promi
   return { control, steps: workerRun.steps, artifacts: workerArtifacts };
 }
 
-async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>): Promise<StepControl> {
-  const result: StepResult = { id: recordId, type: step.type, status: "running", started_at: new Date().toISOString() };
+async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, loopId?: string): Promise<StepControl> {
+  const result: StepResult = { id: recordId, declared_id: step.id, ...(loopId ? { loop_id: loopId } : {}), type: step.type, status: "running", started_at: new Date().toISOString() };
   run.steps.push(result); await store.save(run);
   try {
     if (!shouldRun(step.when, artifacts)) {
@@ -305,7 +329,7 @@ async function executeLoop(step: LoopStep, result: StepResult, recordId: string,
   result.result = loopResult;
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     const started = new Date().toISOString();
-    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions), { run, store, artifacts, root, cwd, quiet, agentSessions });
+    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions, recordId), { run, store, artifacts, root, cwd, quiet, agentSessions });
     if (control !== "continue") {
       loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
       result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
