@@ -22,40 +22,50 @@ function render(value: string, artifacts: ArtifactMap): string {
   return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, key) => String(lookup(key.trim(), artifacts) ?? ""));
 }
 
-type TriState = true | false | undefined;
+type ConditionEvaluation =
+  | { kind: "true" | "false" }
+  | { kind: "unknown"; path: string }
+  | { kind: "invalid"; error: string };
 
 function shouldRun(expression: string | undefined, artifacts: ArtifactMap): boolean {
   if (!expression) return true;
-  return evaluateCondition(expression, artifacts) === true;
+  const evaluation = evaluateCondition(expression, artifacts);
+  if (evaluation.kind === "true") return true;
+  if (evaluation.kind === "false") return false;
+  if (evaluation.kind === "unknown") throw new Error(`Unknown condition artifact/path: ${evaluation.path}`);
+  if (evaluation.kind === "invalid") throw new Error(evaluation.error);
+  throw new Error(`Invalid condition: ${expression}`);
 }
 
-function evaluateCondition(expression: string, artifacts: ArtifactMap): TriState {
-  return evaluateOr(expression.trim(), artifacts);
+function evaluateCondition(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
+  try {
+    return evaluateOr(expression.trim(), artifacts);
+  } catch (error) {
+    return { kind: "invalid", error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
-function evaluateOr(expression: string, artifacts: ArtifactMap): TriState {
-  const parts = splitTopLevel(expression, "||");
-  let sawUnknown = false;
-  for (const part of parts) {
+function evaluateOr(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
+  let problem: ConditionEvaluation | undefined;
+  for (const part of splitTopLevel(expression, "||")) {
     const value = evaluateAnd(part, artifacts);
-    if (value === true) return true;
-    if (value === undefined) sawUnknown = true;
+    if (value.kind === "true") return value;
+    if (value.kind === "unknown" || value.kind === "invalid") problem ??= value;
   }
-  return sawUnknown ? undefined : false;
+  return problem ?? { kind: "false" };
 }
 
-function evaluateAnd(expression: string, artifacts: ArtifactMap): TriState {
-  const parts = splitTopLevel(expression, "&&");
-  let sawUnknown = false;
-  for (const part of parts) {
+function evaluateAnd(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
+  let problem: ConditionEvaluation | undefined;
+  for (const part of splitTopLevel(expression, "&&")) {
     const value = evaluatePrimary(part, artifacts);
-    if (value === false) return false;
-    if (value === undefined) sawUnknown = true;
+    if (value.kind === "false") return value;
+    if (value.kind === "unknown" || value.kind === "invalid") problem ??= value;
   }
-  return sawUnknown ? undefined : true;
+  return problem ?? { kind: "true" };
 }
 
-function evaluatePrimary(expression: string, artifacts: ArtifactMap): TriState {
+function evaluatePrimary(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
   const unwrapped = unwrapParentheses(expression.trim());
   return unwrapped === expression.trim()
     ? evaluateComparison(unwrapped, artifacts)
@@ -97,16 +107,16 @@ function unwrapParentheses(expression: string): string {
   return expression.slice(1, -1).trim();
 }
 
-function evaluateComparison(expression: string, artifacts: ArtifactMap): TriState {
+function evaluateComparison(expression: string, artifacts: ArtifactMap): ConditionEvaluation {
   const match = expression.match(/^([\w.-]+)\s*(==|!=)\s*(.+)$/);
-  if (!match) throw new Error(`Unsupported condition: ${expression}`);
+  if (!match) return { kind: "invalid", error: `Unsupported condition: ${expression}` };
   const actual = lookup(match[1], artifacts);
-  if (actual === undefined) return undefined;
+  if (actual === undefined) return { kind: "unknown", path: match[1] };
   let expected: unknown = match[3].trim().replace(/^['\"]|['\"]$/g, "");
   if (expected === "true") expected = true;
   else if (expected === "false") expected = false;
   else if (/^-?\d+(\.\d+)?$/.test(String(expected))) expected = Number(expected);
-  return match[2] === "==" ? actual === expected : actual !== expected;
+  return { kind: match[2] === "==" ? (actual === expected ? "true" : "false") : (actual !== expected ? "true" : "false") };
 }
 
 export async function execute(options: ExecuteOptions): Promise<RunState> {
@@ -234,23 +244,29 @@ async function executeParallelStep(step: Step, context: ExecutionContext): Promi
 }
 
 async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>): Promise<StepControl> {
-  if (!shouldRun(step.when, artifacts)) {
-    run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
-    artifacts[recordId] = { status: "skipped", output: "" };
-    artifacts[`${recordId}.output`] = "";
-    if (!quiet) console.log(`↷ ${recordId} skipped`); await store.save(run); return "continue";
-  }
-  const effectiveAgent = step.type === "agent" ? resolveEffectiveAgentStep(step, artifacts) : undefined;
-  const selectedVariant = effectiveAgent?.variant;
-  if (step.type === "agent" && step.variants && !effectiveAgent) {
-    run.steps.push({ id: recordId, type: step.type, status: "skipped", control: "continue", started_at: new Date().toISOString(), finished_at: new Date().toISOString() });
-    artifacts[recordId] = { status: "skipped", output: "" };
-    artifacts[`${recordId}.output`] = "";
-    if (!quiet) console.log(`↷ ${recordId} skipped (no variant matched)`); await store.save(run); return "continue";
-  }
-  const result: StepResult = { id: recordId, type: step.type, status: "running", ...(selectedVariant ? { variant: selectedVariant.id } : {}), started_at: new Date().toISOString() };
-  run.steps.push(result); await store.save(run); if (!quiet) process.stdout.write(`→ ${recordId}\r`);
+  const result: StepResult = { id: recordId, type: step.type, status: "running", started_at: new Date().toISOString() };
+  run.steps.push(result); await store.save(run);
   try {
+    if (!shouldRun(step.when, artifacts)) {
+      result.status = "skipped";
+      result.control = "continue";
+      result.finished_at = new Date().toISOString();
+      artifacts[recordId] = { status: "skipped", output: "" };
+      artifacts[`${recordId}.output`] = "";
+      if (!quiet) console.log(`↷ ${recordId} skipped`); await store.save(run); return "continue";
+    }
+    const effectiveAgent = step.type === "agent" ? resolveEffectiveAgentStep(step, artifacts) : undefined;
+    const selectedVariant = effectiveAgent?.variant;
+    if (selectedVariant) result.variant = selectedVariant.id;
+    if (step.type === "agent" && step.variants && !effectiveAgent) {
+      result.status = "skipped";
+      result.control = "continue";
+      result.finished_at = new Date().toISOString();
+      artifacts[recordId] = { status: "skipped", output: "" };
+      artifacts[`${recordId}.output`] = "";
+      if (!quiet) console.log(`↷ ${recordId} skipped (no variant matched)`); await store.save(run); return "continue";
+    }
+    if (!quiet) process.stdout.write(`→ ${recordId}\r`);
     if (step.type === "loop") {
       const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet, agentSessions);
       if (control !== "continue") return control;
@@ -356,7 +372,14 @@ async function executeLoop(step: LoopStep, result: StepResult, recordId: string,
       loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
       result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
     }
-    const until = shouldRun(step.until, artifacts);
+    let until: boolean;
+    try {
+      until = shouldRun(step.until, artifacts);
+    } catch (error) {
+      loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: "failed", until: false });
+      await store.save(run);
+      throw error;
+    }
     loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: until ? "succeeded" : "failed", until });
     result.status = until ? "succeeded" : "running";
     result.control = "continue";
