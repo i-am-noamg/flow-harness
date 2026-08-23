@@ -83,9 +83,9 @@ export interface RunFlowRequest {
 export async function runFlow(request: RunFlowRequest): Promise<{ workflow: Workflow; run: RunState; summary: RunSummary }> {
   const path = resolveFlowPath(request.flow, request.cwd);
   if (!existsSync(path)) throw new Error(`Workflow not found: ${request.flow}`);
-  const { workflow, root } = await loadWorkflow(path);
+  const { workflow, root, workflowSource } = await loadWorkflow(path);
   const inputs = resolveInputs(workflow, request.inputs ?? {});
-  const run = await execute({ workflow, root, cwd: request.cwd, inputs, output: request.output ?? "normal", onProgress: request.onProgress });
+  const run = await execute({ workflow, root, cwd: request.cwd, inputs, output: request.output ?? "normal", onProgress: request.onProgress, workflowSource });
   return { workflow, run, summary: summarizeRun(run, request.cwd) };
 }
 

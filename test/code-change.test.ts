@@ -106,11 +106,11 @@ test("the code-change repair prompt receives only requested command results", as
   assert.doesNotMatch(prompt.text, /hidden (lint|test) stream/);
 });
 
-async function isolatedPrompt(step: Partial<AgentStep>, artifacts: Record<string, unknown>): Promise<Awaited<ReturnType<typeof makePrompt>>> {
+async function isolatedPrompt(step: Partial<AgentStep>, artifacts: Record<string, unknown>, executionMetadata?: { stepId: string; workflowSource: string }): Promise<Awaited<ReturnType<typeof makePrompt>>> {
   const root = await mkdtemp(join(tmpdir(), "flow-prompt-inputs-"));
   try {
     await writeFile(join(root, "prompt.md"), "declared={{declared}} nested={{nested.visible}} hidden={{hidden}} sibling={{nested.sibling}}");
-    return await makePrompt({ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", ...step }, root, root, artifacts, "workflow");
+    return await makePrompt({ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", ...step }, root, root, artifacts, "workflow", executionMetadata);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -126,6 +126,29 @@ test("agent prompts expose only declared artifacts and declared nested paths", a
   assert.match(result.text, /--- nested\.visible ---\n"shown"/);
   assert.doesNotMatch(result.text, /secret/);
   assert.deepEqual(result.input_chars, { declared: 9, "nested.visible": 7 });
+});
+
+test("agent prompts inject read-only workflow metadata without exposing undeclared artifacts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flow-workflow-source-"));
+  const workflowSource = "# deliberately noncanonical\r\nname: workflow # retain this comment\r\nsteps:\r\n  - id: agent\r\n    type: agent\r\n    model: cheap\r\n    thinkingLevel: low\r\n    prompt: prompt.md\r\n";
+  try {
+    const file = join(root, "workflow.flow");
+    await writeFile(file, workflowSource);
+    const loaded = await loadWorkflow(file);
+    assert.equal(loaded.workflowSource, workflowSource);
+    const result = await isolatedPrompt({ inputs: ["declared"] }, { declared: "allowed", hidden: "secret" }, {
+      stepId: "check[2].agent",
+      workflowSource: loaded.workflowSource,
+    });
+
+    assert.match(result.text, /--- Read-only execution metadata ---/);
+    assert.match(result.text, /Current agent step ID: check\[2\]\.agent/);
+    assert.ok(result.text.includes(workflowSource));
+    assert.doesNotMatch(result.text, /secret/);
+    assert.deepEqual(result.input_chars, { declared: 9 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("agent prompts retain skipped inputs and omit unavailable inputs", async () => {

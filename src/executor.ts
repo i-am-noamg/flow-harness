@@ -11,7 +11,7 @@ import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
 import type { AgentStep, AgentUsage, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
-export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; }
+export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; readonly workflowSource?: string; }
 const DEFAULT_MAX_ITERATIONS = 10;
 
 function lookup(path: string, artifacts: ArtifactMap): any {
@@ -44,9 +44,9 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   await store.save(run);
   options.onProgress?.({ type: "flow_started", run_id: run.id, flow: workflow.name, total_steps: workflow.steps.length });
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
-  const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress: options.onProgress };
+  const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress: options.onProgress, workflowSource: options.workflowSource };
   try {
-    const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions, options.onProgress), context);
+    const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions, options.onProgress, undefined, undefined, options.workflowSource), context);
     let status: RunState["status"];
     if (control !== "continue") status = control === "stop" ? "succeeded" : "failed";
     else {
@@ -66,7 +66,7 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
 }
 
 type StepControl = "continue" | "stop" | "fail";
-type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean; agentSessions: Map<string, AgentSessionHandle>; onProgress?: FlowProgressCallback; loopId?: string; loopIteration?: number };
+type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean; agentSessions: Map<string, AgentSessionHandle>; onProgress?: FlowProgressCallback; readonly workflowSource?: string; loopId?: string; loopIteration?: number };
 
 function disposeAgentSessions(sessions: Map<string, AgentSessionHandle>): void {
   for (const handle of sessions.values()) handle.session.dispose?.();
@@ -212,11 +212,11 @@ async function executeParallelStep(step: Step, context: ExecutionContext): Promi
   const workerArtifacts: ArtifactMap = { ...context.artifacts };
   // Records are shared only for coordinator-owned, declaration-ordered persistence;
   // artifacts remain isolated until the batch joins.
-  const control = await executeStep(step, step.id, context.run, context.store, workerArtifacts, context.root, context.cwd, true, context.agentSessions, context.onProgress, context.loopId, context.loopIteration);
+  const control = await executeStep(step, step.id, context.run, context.store, workerArtifacts, context.root, context.cwd, true, context.agentSessions, context.onProgress, context.loopId, context.loopIteration, context.workflowSource);
   return { control, steps: [], artifacts: workerArtifacts };
 }
 
-async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, loopId?: string, loopIteration?: number): Promise<StepControl> {
+async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, loopId?: string, loopIteration?: number, workflowSource?: string): Promise<StepControl> {
   const result: StepResult = { id: recordId, declared_id: step.id, ...(loopId ? { loop_id: loopId } : {}), type: step.type, status: "running", started_at: new Date().toISOString() };
   run.steps.push(result); await store.save(run);
   emitStepProgress(onProgress, "step_started", run, result, loopIteration);
@@ -242,7 +242,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     }
     if (!quiet) process.stdout.write(`→ ${recordId}\r`);
     if (step.type === "loop") {
-      const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress);
+      const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, workflowSource);
       if (control !== "continue") return control;
       const stopped = applyStopWhen(step, result, artifacts);
       result.finished_at = new Date().toISOString(); await store.save(run);
@@ -284,7 +284,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       return "continue";
     }
     const agentStep = effectiveAgent!.step;
-    const renderedPrompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow);
+    const renderedPrompt = await makePrompt(agentStep, root, cwd, artifacts, run.workflow, workflowSource === undefined ? undefined : { stepId: recordId, workflowSource });
     const prompt = renderedPrompt.text;
     const effectiveTools = resolveEffectiveTools(agentStep.tools, agentStep.writes ?? false);
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
@@ -346,13 +346,13 @@ function emitStepProgress(onProgress: FlowProgressCallback | undefined, type: Fl
   onProgress({ type, run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, status: result.status, duration_ms: Math.max(0, finished - Date.parse(result.started_at)), ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}) });
 }
 
-async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback): Promise<StepControl> {
+async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, workflowSource?: string): Promise<StepControl> {
   const maxIterations = step.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const loopResult: LoopResult = { iterations: [], until: step.until, maxIterations, exhausted: false };
   result.result = loopResult;
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     const started = new Date().toISOString();
-    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, recordId, iteration), { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, loopId: recordId, loopIteration: iteration });
+    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, recordId, iteration, workflowSource), { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, workflowSource, loopId: recordId, loopIteration: iteration });
     if (control !== "continue") {
       loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
       result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;
@@ -463,7 +463,7 @@ function projectArtifacts(paths: string[], artifacts: ArtifactMap): ArtifactMap 
   return projected;
 }
 
-export async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
+export async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string, executionMetadata?: { readonly stepId: string; readonly workflowSource: string }): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
   if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
   const promptPath = findPromptPath(step.prompt, root, cwd, workflowName);
   const prompt = await readFile(promptPath, "utf8");
@@ -472,5 +472,6 @@ export async function makePrompt(step: AgentStep, root: string, cwd: string, art
   const input_chars = Object.fromEntries(availableInputs.map((key) => [key, JSON.stringify(lookup(key, promptArtifacts), null, 2).length]));
   const inputs = availableInputs.map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, promptArtifacts), null, 2)}`).join("\n");
   const suffix = step.outputFormat === "single-line" || step.outputFormat === "json" ? "" : "\n\nOperate in the current repository. Return a concise summary of your work and decisions.";
-  return { text: `${render(prompt, promptArtifacts)}${inputs}${suffix}`, path: promptPath, input_chars };
+  const metadata = executionMetadata === undefined ? "" : `\n\n--- Read-only execution metadata ---\nCurrent agent step ID: ${executionMetadata.stepId}\nWorkflow source YAML (verbatim):\n${executionMetadata.workflowSource}\n--- End read-only execution metadata ---`;
+  return { text: `${render(prompt, promptArtifacts)}${inputs}${metadata}${suffix}`, path: promptPath, input_chars };
 }

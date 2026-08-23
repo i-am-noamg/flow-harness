@@ -31,11 +31,12 @@ function validateThinkingLevel(value: unknown, path: string): void {
   }
 }
 
-export async function loadWorkflow(file: string): Promise<{ workflow: Workflow; root: string }> {
+export async function loadWorkflow(file: string): Promise<{ workflow: Workflow; root: string; workflowSource: string }> {
   const path = resolve(file);
-  const workflow = YAML.parse(await readFile(path, "utf8")) as Workflow;
+  const workflowSource = await readFile(path, "utf8");
+  const workflow = YAML.parse(workflowSource) as Workflow;
   validateWorkflow(workflow);
-  return { workflow, root: dirname(path) };
+  return { workflow, root: dirname(path), workflowSource };
 }
 
 export function validateWorkflow(w: Workflow): void {
