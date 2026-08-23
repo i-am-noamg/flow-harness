@@ -42,8 +42,7 @@ function summaryText(summary: ReturnType<typeof summarizeRun>): string {
   const outputs = Object.keys(summary.outputs).length ? `\nDeclared outputs: ${JSON.stringify(summary.outputs)}` : "";
   const changed = summary.changed_files.length ? `\nChanged files: ${summary.changed_files.join(", ")}` : "";
   const failures = summary.failures.length ? `\nFailures: ${summary.failures.map((failure) => `${failure.id}${failure.error ? ` — ${failure.error}` : ""}`).join("; ")}` : "";
-  const omitted = summary.omitted ? ` (${Object.entries(summary.omitted).map(([field, count]) => `${count} ${field}`).join(", ")} omitted)` : "";
-  return `Flow ${summary.flow}: ${summary.status}. Steps: ${steps || "none"}.${outputs}${changed}${failures}\nEvidence: ${summary.run_file}.${omitted} Inspect omitted or exact details with inspect_flow_run ${summary.run_id}.`;
+  return `Flow ${summary.flow}: ${summary.status}. Steps: ${steps || "none"}.${outputs}${changed}${failures}\nRun ID: ${summary.run_id}`;
 }
 
 type FlowRunResult = { content: [{ type: "text"; text: string }]; details: ReturnType<typeof summarizeRun> | { status: "failed"; error: string } };

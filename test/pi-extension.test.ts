@@ -77,7 +77,8 @@ test("run_flow uses user-only status updates and clears them without timeline up
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/1 · report")));
     assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
     assert.match(result.content[0].text, /Flow live: succeeded/);
-    assert.match(result.content[0].text, /inspect_flow_run/);
+    assert.match(result.content[0].text, /Run ID: /);
+    assert.doesNotMatch(result.content[0].text, /Evidence:|inspect_flow_run/);
     assert.doesNotMatch(JSON.stringify(result), /stdout|stderr/);
 
     const failed = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
@@ -150,7 +151,8 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     assert.equal(pi.entries[0].type, "flow-run");
     const entry = pi.entries[0].data as any;
     assert.match(entry.text, /Flow manual: succeeded/);
-    assert.match(entry.text, /inspect_flow_run/);
+    assert.match(entry.text, /Run ID: /);
+    assert.doesNotMatch(entry.text, /Evidence:|inspect_flow_run/);
     assert.doesNotMatch(JSON.stringify(entry), /hidden output|stdout|stderr/);
 
     const temporary = await input({ text: "$temporary" }, ctx);
