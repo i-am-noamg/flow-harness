@@ -13,8 +13,8 @@ inputs:
 outputs:
   changed: implement.changed
   changed_files: implement.changed_files
-  tests_passed: test.exit_code == 0
-  tests_status: test.status
+  tests_passed: if(implement.changed == false, true, test.exit_code == 0)
+  tests_status: if(implement.changed == false, "skipped", test.status)
 
 steps:
   - id: inspect
