@@ -8,7 +8,7 @@ inputs:
   simple:
     type: boolean
     default: false
-    description: Skip dedicated inspect and plan agents and let the implementation agent inspect directly.
+    description: Use for narrow, well-scoped changes with clear expected behavior; skips dedicated inspect and plan agents so implementation inspects directly.
 
 outputs:
   changed: implement.changed
@@ -43,16 +43,23 @@ steps:
     inputs: [task, plan]
     writes: true
 
-  - id: test_and_repair
+  - id: check_and_repair
     type: loop
     maxIterations: 5
-    until: test.exit_code == 0
+    until: lint.exit_code == 0 && test.exit_code == 0
     when: implement.changed == true
     steps:
+      - id: lint
+        type: exec
+        program: npm
+        args: [run, lint, --if-present]
+        parallel: true
+        console: on-failure
       - id: test
         type: exec
         program: npm
         args: [test]
+        parallel: true
         console: on-failure
       - id: repair
         type: agent
@@ -60,6 +67,6 @@ steps:
         thinkingLevel: medium
         prompt: repair.md
         history: true
-        when: test.exit_code != 0
-        inputs: [task, plan, implement.output, repair.history, test.exit_code, test.output]
+        when: lint.exit_code != 0 || test.exit_code != 0
+        inputs: [task, plan, repair.history, lint.exit_code, lint.output, test.exit_code, test.output]
         writes: true

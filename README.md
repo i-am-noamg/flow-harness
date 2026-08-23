@@ -80,7 +80,13 @@ steps:
         writes: true
 ```
 
-Flow validates the workflow before it runs. It persists full run evidence—including command output, agent usage, model settings, tool calls, timing, and failures—under `.flow/runs/`. Routine results stay compact; inspect a run when you need the details.
+Flow validates the workflow before it runs. It persists full run evidence—including command output, agent usage, model settings, declared effective tool allowlists, tools actually called, timing, and failures—under `.flow/runs/`. Routine results stay compact; inspect a run when you need the details.
+
+### Agent execution metrics
+
+Final run evidence includes per-agent prompt, declared-input, and output character counts; requested and response models; duration in seconds; Pi token usage; and a post-prompt Pi context snapshot when Pi reports context data. Run aggregates include the corresponding character totals, summed agent duration in milliseconds, model sets, stable effective and actually-called tool sets, and `repair_iterations` (non-skipped executions of a loop child declared as `repair`). Character counts are not token counts.
+
+Effective tools come from the persisted declared Pi allowlist; actual tools come only from Pi assistant `toolCall` evidence. Each agent result also retains structured, transcript-derived tool events: call IDs, names, arguments, ordered correlated results, result content/details, and error status. If Pi does not expose public session messages, `tool_evidence` explicitly records that it is unavailable and why; Flow never reconstructs tool activity from prose. Hidden model reasoning is not available and is not recorded. Full command stdout and stderr remain persisted as command evidence. `total_context_usage` is the `sum_reported_snapshots` aggregate of Pi-reported per-agent context-token snapshots and records how many snapshots contributed. It is not a genuine cumulative run-context value: repeated snapshots, including those from shared sessions, can overlap. It remains unavailable when Pi reports no context tokens; per-agent snapshots retain any other Pi-reported context fields.
 
 See the complete, production-ready examples: [`code-change`](flows/code-change.flow) and [`git-commit`](flows/git-commit.flow).
 
@@ -141,9 +147,9 @@ Workflows are project-local: a name resolves under `flows/`, while an explicit p
 
 Put reusable workflows in `flows/`. Prompts can sit alongside their flow under `flows/prompts/<workflow-name>/`.
 
-- Use `agent` steps for inspection, planning, implementation, or other judgment.
+- Use `agent` steps for inspection, planning, implementation, or other judgment; grant each the smallest necessary `tools` allowlist. The declared allowlist and tools actually called are recorded separately in run evidence.
 - Use `exec` steps for direct commands and `shell` only when shell syntax is necessary.
-- Connect steps with declared `inputs` and `outputs`.
+- Connect steps with declared `inputs` and `outputs`. An agent prompt can interpolate and receives appended artifacts only from its declared `inputs`; a nested input such as `test.output` exposes only that path, and unavailable inputs are omitted.
 - Use `when` for conditional work, `loop` for bounded retries, and `parallel: true` for independent read-only steps.
 - Validate before running: `flow validate flows/my-flow.flow`.
 

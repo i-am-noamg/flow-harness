@@ -31,7 +31,7 @@ steps:
   thinkingLevel: medium # required: off, minimal, low, medium, high, xhigh, or max
   prompt: prompts/inspect.md
   writes: false # true when the agent may edit files
-  tools: [read, grep, find, ls] # optional; when supported
+  tools: [read, grep, find, ls] # optional allowlist: read, bash, edit, write, grep, find, ls
   inputs: [task, status.output]
   outputs: [summary]
   history: true # optional; expose prior executions as step_id.history
@@ -39,7 +39,11 @@ steps:
   when: task != "" # optional condition
 ```
 
+When `tools` is omitted, `writes: false` defaults to `[read, grep, find, ls]`; `writes: true` defaults to `[read, bash, edit, write, grep, find, ls]`. An explicit list, including `tools: []`, is used unchanged. Grant the smallest allowlist needed. `writes` remains the safety declaration for workspace snapshots and parallel-write restrictions; set it accurately whenever the allowlist could mutate the workspace—it is not inferred from `tools`. Variants may override their step's `tools` list.
+
 Use `single-line` or `text`/multi-line output for one output variable. Use `json` when producing multiple named output variables. Every agent, shell, and exec step exposes its latest canonical `step_id.output`. This is available whether or not `outputs` is declared. `outputs` adds named values alongside it; it does not replace the canonical output. Agent output is the final response text, while process output is captured stdout/stderr. Thinking, tool calls, and usage remain execution metadata rather than part of `output`.
+
+An agent's prompt interpolation and appended artifact sections are restricted to its declared `inputs`. A nested declaration such as `status.output` exposes only that path, not sibling fields under `status`; unavailable declared paths are omitted.
 
 ## Process steps
 
@@ -85,6 +89,29 @@ Use `exec` for a program and argument list. Use `shell` only for pipes, redirect
 ```
 
 Consecutive `parallel: true` steps form a read-only batch. They must be independent, cannot be shell steps or loops, and writing agents cannot run in parallel. The next unmarked step is a barrier.
+
+## Outputs
+
+Each output declaration is a string using this grammar:
+
+```text
+output = value | condition | "if(" condition "," value "," value ")"
+value = path | literal
+path = identifier ("." identifier)*
+literal = true | false | number | quoted string
+condition = comparison | "(" condition ")" | condition "&&" condition | condition "||" condition
+comparison = path ("==" | "!=") (literal | identifier)
+```
+
+`&&`, `||`, and parentheses have ordinary boolean-expression semantics. Use `if` to select a value; only the selected branch is resolved, and values are returned exactly, including `false`, `0`, and `""`:
+
+```yaml
+outputs:
+  commit_message: if(msg != "", msg, generated_commit_message)
+  pushed: push.status == succeeded || force_push.status == succeeded
+```
+
+There is no fallback/coalesce syntax and no `condition(...)` wrapper. An unavailable direct path, selected `if` branch, or condition path causes runtime resolution to mark the run `failed`. Syntax errors fail during loading. The persisted run includes `output_error` with the output name, expression, unresolved path when available, and error message.
 
 ## Conditions
 
