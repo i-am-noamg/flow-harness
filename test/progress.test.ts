@@ -9,6 +9,15 @@ import type { FlowProgressEvent, Workflow } from "../src/types.js";
 const node = process.execPath;
 const command = (id: string, script: string, parallel = false) => ({ id, type: "exec" as const, parallel, program: node, args: ["-e", script] });
 
+test("agent progress is a transient payload-safe cumulative invocation snapshot", () => {
+  const event: FlowProgressEvent = {
+    type: "agent_progress", run_id: "run", flow: "flow", id: "check[1].agent", declared_id: "agent", loop_id: "check", loop_iteration: 1,
+    status: "running", duration_ms: 50, usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12 }, turns: 1, tool_calls: 0, retries: 0,
+  };
+  assert.equal(event.type, "agent_progress");
+  if (event.type === "agent_progress") assert.equal(event.usage?.totalTokens, 12);
+});
+
 test("progress reports ordered step lifecycle events with loop qualification", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "flow-progress-"));
   const events: FlowProgressEvent[] = [];

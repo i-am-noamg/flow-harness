@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Box, Text } from "@earendil-works/pi-tui";
 import { inputDefinition, inspectRun, listFlows, loadFlow, resolveInputs, runFlow, summarizeRun, summarizeStep } from "./flow-service.js";
 import { formatFlowCatalog } from "./flow-catalog.js";
+import type { AgentUsage, FlowProgressEvent } from "./types.js";
 
 const FlowRunParams = Type.Object({
   flow: Type.String({ description: "Flow name from flows/ or an explicit .flow path; temporary flows under .flow/tmp/ require their path" }),
@@ -48,28 +49,77 @@ function summaryText(summary: ReturnType<typeof summarizeRun>): string {
 type FlowRunResult = { content: [{ type: "text"; text: string }]; details: ReturnType<typeof summarizeRun> | { status: "failed"; error: string } };
 type FlowEntry = { text: string; details: FlowRunResult["details"] };
 
+type LiveStep = { started: number; usage?: AgentUsage; turns?: number; tool_calls?: number; retries?: number };
+
+function addUsage(total: AgentUsage, usage: AgentUsage | undefined): void {
+  if (!usage) return;
+  total.input += usage.input;
+  total.output += usage.output;
+  total.cacheRead += usage.cacheRead;
+  total.cacheWrite += usage.cacheWrite;
+  total.totalTokens += usage.totalTokens;
+  if (usage.cost) {
+    total.cost ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+    total.cost.input += usage.cost.input;
+    total.cost.output += usage.cost.output;
+    total.cost.cacheRead += usage.cost.cacheRead;
+    total.cost.cacheWrite += usage.cost.cacheWrite;
+    total.cost.total += usage.cost.total;
+  }
+}
+
+function elapsed(ms: number): string {
+  return `${Math.max(0, Math.floor(ms / 1000))}s`;
+}
+
+function usageText(usage: AgentUsage): string {
+  const tokens = usage.totalTokens >= 1000 ? `${(usage.totalTokens / 1000).toFixed(1)}k` : String(usage.totalTokens);
+  return `${tokens} tok${usage.cost ? ` · $${usage.cost.total.toFixed(4)}` : ""}`;
+}
+
+export function flowStatusText(flow: string, completed: number, total: number, started: number, active: Map<string, LiveStep>, completedUsage: AgentUsage, current = Date.now()): string {
+  const activeSteps = [...active.entries()];
+  const labels = activeSteps.slice(0, 3).map(([id, step]) => `${id} ${elapsed(current - step.started)}${step.usage ? ` · ${usageText(step.usage)}` : ""}`);
+  const extra = activeSteps.length > 3 ? ` +${activeSteps.length - 3}` : "";
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } as AgentUsage;
+  addUsage(usage, completedUsage);
+  for (const [, step] of activeSteps) addUsage(usage, step.usage);
+  const hasUsage = usage.totalTokens > 0 || usage.cost !== undefined;
+  const liveDetail = activeSteps.length ? `${activeSteps.length > 1 ? "active " : ""}${labels.join(", ")}${extra}` : "starting";
+  return `Flow ${flow} · ${completed}/${total || "?"} · ${liveDetail} · ${elapsed(current - started)} total${hasUsage ? ` · ${usageText(usage)}` : ""}`;
+}
+
 async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string): Promise<FlowRunResult> {
   const statusKey = `flow:${statusId}`;
+  const started = Date.now();
   let completed = 0;
   let total = 0;
-  const setStatus = (current: string) => ctx.ui.setStatus(statusKey, `Flow ${flow} · ${completed}/${total || "?"} · ${current}`);
-  setStatus("starting");
+  const active = new Map<string, LiveStep>();
+  const completedUsage: AgentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  const setStatus = () => ctx.ui.setStatus(statusKey, flowStatusText(flow, completed, total, started, active, completedUsage));
+  setStatus();
+  const refresh = setInterval(setStatus, 1000);
   try {
     const { summary } = await runFlow({
       flow,
       cwd,
       inputs,
       output: "quiet",
-      onProgress: (event) => {
+      onProgress: (event: FlowProgressEvent) => {
         if (event.type === "flow_started") {
           total = event.total_steps;
-          setStatus("starting");
         } else if (event.type === "step_started") {
-          setStatus(event.id);
+          active.set(event.id, { started: Date.now() });
+        } else if (event.type === "agent_progress") {
+          const step = active.get(event.id) ?? { started: Date.now() };
+          active.set(event.id, { ...step, ...(event.usage ? { usage: event.usage } : {}), turns: event.turns, tool_calls: event.tool_calls, retries: event.retries });
         } else {
+          const step = active.get(event.id);
+          if (step?.usage) addUsage(completedUsage, step.usage);
+          active.delete(event.id);
           if (!event.loop_id) completed++;
-          setStatus(`${event.id} ${event.status}`);
         }
+        setStatus();
       },
     });
     return { content: [{ type: "text", text: summaryText(summary) }], details: summary };
@@ -77,6 +127,7 @@ async function executeFlow(flow: string, inputs: Record<string, unknown> | undef
     const text = `Flow failed to start: ${error instanceof Error ? error.message : String(error)}`;
     return { content: [{ type: "text", text }], details: { status: "failed", error: text } };
   } finally {
+    clearInterval(refresh);
     ctx.ui.setStatus(statusKey, undefined);
   }
 }

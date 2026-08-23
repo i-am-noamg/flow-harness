@@ -161,8 +161,24 @@ export interface FlowStepProgressEvent {
   loop_id?: string;
   loop_iteration?: number;
 }
+/** Transient, payload-safe agent snapshot; usage is cumulative for this invocation, not a context snapshot. */
+export interface FlowAgentProgressEvent {
+  type: "agent_progress";
+  run_id: string;
+  flow: string;
+  id: string;
+  declared_id: string;
+  status: "running";
+  duration_ms: number;
+  usage?: AgentUsage;
+  turns: number;
+  tool_calls: number;
+  retries: number;
+  loop_id?: string;
+  loop_iteration?: number;
+}
 /** Payload-safe lifecycle updates; detailed evidence remains in the saved run. */
-export type FlowProgressEvent = FlowProgressStartEvent | FlowStepProgressEvent;
+export type FlowProgressEvent = FlowProgressStartEvent | FlowStepProgressEvent | FlowAgentProgressEvent;
 export type FlowProgressCallback = (event: FlowProgressEvent) => void;
 
 export interface StepResult {

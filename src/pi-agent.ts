@@ -1,5 +1,13 @@
 import type { AgentResult, AgentUsage, ThinkingLevel } from "./types.js";
 
+export interface AgentLiveUpdate {
+  /** Cumulative usage for this prompt invocation, when Pi has reported it. */
+  usage?: AgentUsage;
+  turns: number;
+  tool_calls: number;
+  retries: number;
+}
+
 function textFromMessage(message: any): string {
   if (!message) return "";
   if (typeof message.content === "string") return message.content;
@@ -128,7 +136,7 @@ export async function createAgentSession(cwd: string, profile?: string, writes =
   return { session, model: requested, writes, effective_tools };
 }
 
-export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel, tools?: string[]): Promise<AgentResult> {
+export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel, tools?: string[], onLiveUpdate?: (update: AgentLiveUpdate) => void): Promise<AgentResult> {
   const started = Date.now();
   const handle = shared ?? await createAgentSession(cwd, profile, writes, thinkingLevel, tools);
   const session = handle.session;
@@ -136,7 +144,25 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
   const beforeMessages = session.messages;
   const before = Array.isArray(beforeMessages) ? beforeMessages.length : undefined;
   let retries = 0;
+  let lastLiveSignature = "";
   let section: "thinking" | "output" | undefined;
+  const emitLiveUpdate = (): void => {
+    if (!onLiveUpdate || !Array.isArray(session.messages)) return;
+    const assistants = session.messages.slice(before ?? 0).filter((message: any) => message.role === "assistant");
+    const tool_calls = assistants.reduce((count: number, message: any) => count + (Array.isArray(message.content) ? message.content.filter((part: any) => part.type === "toolCall").length : 0), 0);
+    const hasUsage = assistants.some((message: any) => message.usage != null);
+    const signature = `${assistants.length}:${tool_calls}:${retries}:${hasUsage ? JSON.stringify(assistants.map((message: any) => message.usage)) : ""}`;
+    if (signature === lastLiveSignature) return;
+    lastLiveSignature = signature;
+    const usage = emptyUsage();
+    if (hasUsage) for (const message of assistants) addUsage(usage, message.usage);
+    // Keep the transient payload a faithful, compact snapshot of reported usage.
+    // addUsage preserves optional final-result fields as zeroes, but do not invent
+    // optional metrics that Pi did not report for this invocation.
+    if (!assistants.some((message: any) => typeof message.usage?.cacheWrite1h === "number")) delete usage.cacheWrite1h;
+    if (!assistants.some((message: any) => typeof message.usage?.reasoning === "number")) delete usage.reasoning;
+    onLiveUpdate({ ...(hasUsage ? { usage } : {}), turns: assistants.length, tool_calls, retries });
+  };
   const printSection = (next: "thinking" | "output"): void => {
     if (section === next) return;
     section = next;
@@ -144,6 +170,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
   };
   const unsubscribe = session.subscribe((event: any) => {
     if (event.type === "agent_end" && event.willRetry) retries++;
+    emitLiveUpdate();
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
     if (update.type === "thinking_delta" || update.type === "text_delta") {
@@ -164,6 +191,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     unsubscribe?.();
     if (section && !quiet) process.stdout.write("\n");
     context_usage = snapshotContextUsage(session);
+    emitLiveUpdate();
     if (!shared) session.dispose?.();
   }
   const messages = session.messages;

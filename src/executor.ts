@@ -8,7 +8,7 @@ import { evaluateOutputExpression, OutputResolutionError } from "./outputs.js";
 import { AgentExecutionError, createAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
-import type { AgentStep, AgentUsage, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
+import type { AgentStep, AgentUsage, FlowAgentProgressEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
 export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; readonly workflowSource?: string; }
@@ -297,7 +297,9 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
         agentSessions.set(agentStep.context, sharedSession);
       }
     }
-    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel, effectiveTools);
+    const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel, effectiveTools, (update) => {
+      emitAgentProgress(onProgress, run, result, update, loopIteration);
+    });
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
@@ -344,6 +346,17 @@ function emitStepProgress(onProgress: FlowProgressCallback | undefined, type: Fl
   if (!onProgress) return;
   const finished = result.finished_at ? Date.parse(result.finished_at) : Date.now();
   onProgress({ type, run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, status: result.status, duration_ms: Math.max(0, finished - Date.parse(result.started_at)), ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}) });
+}
+
+function emitAgentProgress(onProgress: FlowProgressCallback | undefined, run: RunState, result: StepResult, update: { usage?: AgentUsage; turns: number; tool_calls: number; retries: number }, loopIteration?: number): void {
+  if (!onProgress) return;
+  const event: FlowAgentProgressEvent = {
+    type: "agent_progress", run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, status: "running",
+    duration_ms: Math.max(0, Date.now() - Date.parse(result.started_at)),
+    ...(update.usage ? { usage: update.usage } : {}), turns: update.turns, tool_calls: update.tool_calls, retries: update.retries,
+    ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}),
+  };
+  onProgress(event);
 }
 
 async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, workflowSource?: string): Promise<StepControl> {

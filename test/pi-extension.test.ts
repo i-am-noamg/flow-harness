@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import flowExtension from "../src/pi-extension.js";
+import flowExtension, { flowStatusText } from "../src/pi-extension.js";
+import type { AgentUsage } from "../src/types.js";
 
 function fakePi() {
   const tools = new Map<string, any>();
@@ -51,6 +52,16 @@ test("inspect_flow_run selects raw nested agent evidence while default inspectio
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test("flow status renders active plural elapsed time and only reported cumulative usage", () => {
+  const completed: AgentUsage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.03 } };
+  const active = new Map([
+    ["inspect", { started: 1_000, usage: { input: 20, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.04 } } }],
+    ["test", { started: 2_000 }],
+  ]);
+  assert.equal(flowStatusText("live", 1, 3, 0, active, completed, 4_500), "Flow live · 1/3 · active inspect 3s · 30 tok · $0.0400, test 2s · 4s total · 45 tok · $0.0700");
+  assert.doesNotMatch(flowStatusText("live", 0, 1, 0, new Map([["wait", { started: 0 }]]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, 999), /tok|\$/);
 });
 
 test("run_flow uses user-only status updates and clears them without timeline updates", async () => {
