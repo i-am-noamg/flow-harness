@@ -66,6 +66,28 @@ test("lint and test failures exhaust only after the bounded loop", async () => {
   }
 });
 
+test("the code-change workflow uses scoped research guidance and a strong plan agent", async () => {
+  const { workflow, root } = await loadWorkflow(join(process.cwd(), "flows", "code-change.flow"));
+  const simple = workflow.inputs!.simple as { description: string };
+  const plan = workflow.steps.find((step) => step.id === "plan") as AgentStep;
+
+  assert.match(simple.description, /narrow, well-scoped changes with clear expected behavior/);
+  assert.equal(plan.model, "strongest");
+  assert.equal(plan.thinkingLevel, "high");
+
+  const [inspectPrompt, planPrompt, implementPrompt] = await Promise.all([
+    readFile(join(root, "prompts", "code-change", "inspect.md"), "utf8"),
+    readFile(join(root, "prompts", "code-change", "plan.md"), "utf8"),
+    readFile(join(root, "prompts", "code-change", "implement.md"), "utf8"),
+  ]);
+  assert.match(inspectPrompt, /avoid duplicate investigation and broad research/);
+  assert.match(planPrompt, /Rely on `repo_summary` unless it lacks a fact required to make the plan/);
+  assert.match(planPrompt, /avoid duplicate investigation and broad research/);
+  assert.match(implementPrompt, /Inspect only the files you must change or verify/);
+  assert.match(implementPrompt, /avoid duplicate or broad research/);
+  assert.match(implementPrompt, /do not reopen external documentation unless the plan leaves a specific question/);
+});
+
 test("the code-change repair prompt receives only requested command results", async () => {
   const { workflow, root } = await loadWorkflow(join(process.cwd(), "flows", "code-change.flow"));
   const loop = workflow.steps.find((step) => step.id === "check_and_repair") as Extract<Workflow["steps"][number], { type: "loop" }>;
