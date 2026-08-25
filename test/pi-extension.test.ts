@@ -64,6 +64,27 @@ test("flow status renders active plural elapsed time and only reported cumulativ
   assert.doesNotMatch(flowStatusText("live", 0, 1, 0, new Map([["wait", { started: 0 }]]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, 999), /tok|\$/);
 });
 
+test("run_flow renders its flow and bounded inputs, with complete expanded parameters", () => {
+  const pi = fakePi();
+  flowExtension(pi as any);
+  const renderCall = pi.tools.get("run_flow").renderCall;
+  const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+  const params = { flow: "release", inputs: { message: "x".repeat(200), dry_run: true }, cwd: "packages/app" };
+
+  const collapsed = renderCall(params, theme, { expanded: false }).render(1_000).join("\n").trimEnd();
+  assert.match(collapsed, /run_flow release/);
+  assert.match(collapsed, /\{"message":"x{100}/);
+  assert.match(collapsed, /…/);
+  assert.doesNotMatch(collapsed, /packages\/app/);
+  assert.ok(collapsed.length <= "run_flow release ".length + 120);
+
+  const expanded = renderCall(params, theme, { expanded: true }).render(1_000).map((line: string) => line.trimEnd()).join("\n");
+  assert.match(expanded, /run_flow release/);
+  assert.match(expanded, /\n\{\n  "flow": "release",\n  "inputs": \{/);
+  assert.ok(expanded.includes('"cwd": "packages/app"'));
+  assert.match(expanded, /x{200}/);
+});
+
 test("run_flow uses user-only status updates and clears them without timeline updates", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "flow-extension-run-"));
   try {

@@ -77,6 +77,11 @@ function usageText(usage: AgentUsage): string {
   return `${tokens} tok${usage.cost ? ` · $${usage.cost.total.toFixed(4)}` : ""}`;
 }
 
+function compactInputs(inputs: Record<string, unknown> | undefined, maxLength = 120): string {
+  const text = JSON.stringify(inputs ?? {});
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
 export function flowStatusText(flow: string, completed: number, total: number, started: number, active: Map<string, LiveStep>, completedUsage: AgentUsage, current = Date.now()): string {
   const activeSteps = [...active.entries()];
   const labels = activeSteps.slice(0, 3).map(([id, step]) => `${id} ${elapsed(current - step.started)}${step.usage ? ` · ${usageText(step.usage)}` : ""}`);
@@ -182,6 +187,14 @@ When a listed workflow matches the task, prefer the flow tools: after creating o
     label: "Run flow",
     description: "Run a declarative workflow with its declared inputs. Use a flows/ name or an explicit path for temporary .flow/tmp/ workflows. Returns its status, declared outputs, failures, changed files, and run ID.",
     parameters: FlowRunParams,
+    renderCall(params, theme, { expanded }) {
+      const title = theme.fg("toolTitle", theme.bold("run_flow ")) + theme.fg("accent", params.flow);
+      if (expanded) {
+        const complete = JSON.stringify({ flow: params.flow, inputs: params.inputs, ...(params.cwd !== undefined ? { cwd: params.cwd } : {}) }, null, 2);
+        return new Text(`${title}\n${theme.fg("dim", complete)}`, 0, 0);
+      }
+      return new Text(`${title} ${theme.fg("muted", compactInputs(params.inputs))}`, 0, 0);
+    },
     async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
       return executeFlow(params.flow, params.inputs, cwd, ctx, toolCallId);
