@@ -60,7 +60,7 @@ test("flow status renders active plural elapsed time and only reported cumulativ
     ["inspect", { started: 1_000, usage: { input: 20, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.04 } } }],
     ["test", { started: 2_000 }],
   ]);
-  assert.equal(flowStatusText("live", 1, 3, 0, active, completed, 4_500), "Flow live · 1/3 · active inspect 3s · 30 tok · $0.0400, test 2s · 4s total · 45 tok · $0.0700");
+  assert.equal(flowStatusText("live", 1, 3, 0, active, completed, 4_500), "Flow live · 2/3 · active inspect 3s · 30 tok · $0.0400, test 2s · 4s total · 45 tok · $0.0700");
   assert.doesNotMatch(flowStatusText("live", 0, 1, 0, new Map([["wait", { started: 0 }]]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, 999), /tok|\$/);
 });
 
@@ -84,8 +84,8 @@ test("run_flow uses user-only status updates and clears them without timeline up
     let updates = 0;
     const result = await pi.tools.get("run_flow").execute("call", { flow: "live" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
     assert.equal(updates, 0);
-    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/? · starting")));
-    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/1 · report")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/? · starting")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/1 · report")));
     assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
     assert.match(result.content[0].text, /Flow live: succeeded/);
     assert.match(result.content[0].text, /Run ID: /);
@@ -156,7 +156,7 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     assert.deepEqual(handled, { action: "handled" });
     assert.equal(prompts.length, 3);
     assert.deepEqual(notices, ["required is required."]);
-    assert.ok(statuses.some(([, value]) => value?.includes("Flow manual · 0/1 · report")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow manual · 1/1 · report")));
     assert.deepEqual(statuses.at(-1), ["flow:manual:manual", undefined]);
     assert.equal(pi.entries.length, 1);
     assert.equal(pi.entries[0].type, "flow-run");

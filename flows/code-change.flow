@@ -40,7 +40,7 @@ steps:
     model: capable
     thinkingLevel: medium
     prompt: implement.md
-    inputs: [task, plan]
+    inputs: [task, repo_summary, plan]
     writes: true
 
   - id: check_and_repair

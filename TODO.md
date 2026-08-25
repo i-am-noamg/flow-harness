@@ -41,3 +41,5 @@ These skills should ship with the Pi flow extension, alongside the flow tools, r
 - [x] Improve `list_flows` output so it is compact and immediately actionable: include a one-line purpose, input types and explicit defaults, and declared outputs without noisy schema repetition.
 - [ ] Improve flow output presentation so results are concise and consistently structured, while making failures, changed files, status, and the run-inspection command easy to find.
 - [x] Keep routine logs out of compact tool responses, but expose enough evidence to make the next deterministic action obvious.
+- [ ] Flow run status that's shown to the user step index should be 1 based and not 0 based
+- [ ] Show the user but preferably not the agent what were the inputs for `run_flow` call

@@ -86,7 +86,8 @@ export function flowStatusText(flow: string, completed: number, total: number, s
   for (const [, step] of activeSteps) addUsage(usage, step.usage);
   const hasUsage = usage.totalTokens > 0 || usage.cost !== undefined;
   const liveDetail = activeSteps.length ? `${activeSteps.length > 1 ? "active " : ""}${labels.join(", ")}${extra}` : "starting";
-  return `Flow ${flow} · ${completed}/${total || "?"} · ${liveDetail} · ${elapsed(current - started)} total${hasUsage ? ` · ${usageText(usage)}` : ""}`;
+  const stepIndex = total ? Math.min(completed + 1, total) : completed + 1;
+  return `Flow ${flow} · ${stepIndex}/${total || "?"} · ${liveDetail} · ${elapsed(current - started)} total${hasUsage ? ` · ${usageText(usage)}` : ""}`;
 }
 
 async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string): Promise<FlowRunResult> {
