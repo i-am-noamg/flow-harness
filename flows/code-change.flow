@@ -8,7 +8,7 @@ inputs:
   simple:
     type: boolean
     default: false
-    description: Use for narrow, well-scoped changes with clear expected behavior; skips dedicated inspect and plan agents so implementation inspects directly.
+    description: Use when the task already identifies the target scope and expected behavior; skips separate inspection and planning so implementation inspects directly.
 
 outputs:
   changed: implement.changed
@@ -67,10 +67,6 @@ steps:
           set -e
           printf '%s\n' '--- git status --short --untracked-files=all ---'
           git status --short --untracked-files=all
-          printf '%s\n' '--- git diff --no-ext-diff --binary ---'
-          git --no-pager diff --no-ext-diff --binary
-          printf '%s\n' '--- git diff --cached --no-ext-diff --binary ---'
-          git --no-pager diff --cached --no-ext-diff --binary
         when: lint.exit_code != 0 || test.exit_code != 0
       - id: repair
         type: agent

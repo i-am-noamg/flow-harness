@@ -22,7 +22,7 @@ Prioritize, in every change:
   - `command.ts` — bounded process execution and output capture.
   - `artifacts.ts` / `workspace.ts` — persisted runs and workspace change tracking.
 - `flows/` — declarative workflow definitions.
-- `prompts/` — prompts used by agent steps.
+- `flows/prompts/<flow-name>/` — flow-local prompts; relative `prompt:` references in a workflow resolve from its flow-local prompt directory.
 - `test/` — Node test-runner tests.
 - `dist/` — generated build output; edit source instead.
 - `.flow/runs/` — local run evidence; normally generated and not source code.
@@ -37,7 +37,7 @@ npm run build  # build dist/
 npm run dev -- --help
 ```
 
-When changing a workflow, validate it with `npm run dev -- validate <flow>` or the equivalent Pi tool. Add focused tests for executor, loader, and summary behavior. For changes to prompts or presentation, keep outputs concise and test the underlying structured data where practical.
+When changing a workflow, validate it with `npm run dev -- validate <flow>` or the equivalent Pi tool. Declarative workflow and flow-prompt-only changes should be validated but should not add flow-specific tests unless the task explicitly requests tests or changes harness semantics. Add focused tests for executor, loader, and summary behavior. For changes to prompts or presentation, keep outputs concise and test the underlying structured data where practical.
 
 ## Implementation guidance
 
