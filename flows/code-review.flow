@@ -1,0 +1,100 @@
+name: code-review
+description: Review the working-tree diff against a Git revision and report only evidence-based, actionable findings without changing files.
+
+inputs:
+  base:
+    type: string
+    default: HEAD
+    description: Git revision or diff range to compare with the working tree.
+  focus:
+    type: string
+    default: ""
+    description: Optional risk area or acceptance criterion to prioritize during review.
+  deep:
+    type: boolean
+    default: false
+    description: Use independent behavior and change-impact reviewers with final adjudication for substantial changes.
+  include_untracked:
+    type: boolean
+    default: false
+    description: Include non-ignored untracked files reported by Git; opt in only when those files are safe and intended for review.
+
+outputs:
+  review: review.output
+
+steps:
+  - id: repository_status
+    type: exec
+    program: git
+    args: [status, --short, --untracked-files=all]
+    outputFormat: text
+    console: on-failure
+    parallel: true
+
+  - id: changed_files
+    type: exec
+    program: git
+    args: [diff, --no-ext-diff, --name-only, --end-of-options, "{{base}}"]
+    outputFormat: lines
+    console: on-failure
+    parallel: true
+
+  - id: diff
+    type: exec
+    program: git
+    args: [diff, --no-ext-diff, --unified=80, --end-of-options, "{{base}}"]
+    outputFormat: text
+    console: on-failure
+
+  - id: untracked_files
+    type: exec
+    program: git
+    args: [ls-files, --others, --exclude-standard]
+    outputFormat: lines
+    console: on-failure
+    when: include_untracked == true
+
+  - id: behavior_review
+    type: agent
+    model: capable
+    thinkingLevel: high
+    prompt: behavior-review.md
+    when: deep == true
+    writes: false
+    tools: [read, grep, find, ls]
+    inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
+    outputFormat: text
+    parallel: true
+
+  - id: impact_review
+    type: agent
+    model: capable
+    thinkingLevel: high
+    prompt: impact-review.md
+    when: deep == true
+    writes: false
+    tools: [read, grep, find, ls]
+    inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
+    outputFormat: text
+    parallel: true
+
+  - id: review
+    type: agent
+    model: strongest
+    thinkingLevel: high
+    writes: false
+    tools: [read, grep, find, ls]
+    outputFormat: text
+    variants:
+      - id: standard
+        when: deep == false
+        model: strongest
+        thinkingLevel: high
+        prompt: review.md
+        inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
+      - id: adjudicate
+        when: deep == true
+        model: strongest
+        thinkingLevel: high
+        prompt: adjudicate.md
+        inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output, behavior_review.output, impact_review.output]
