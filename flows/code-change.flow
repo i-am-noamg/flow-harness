@@ -61,6 +61,17 @@ steps:
         args: [test]
         parallel: true
         console: on-failure
+      - id: workspace_state
+        type: shell
+        command: |
+          set -e
+          printf '%s\n' '--- git status --short --untracked-files=all ---'
+          git status --short --untracked-files=all
+          printf '%s\n' '--- git diff --no-ext-diff --binary ---'
+          git --no-pager diff --no-ext-diff --binary
+          printf '%s\n' '--- git diff --cached --no-ext-diff --binary ---'
+          git --no-pager diff --cached --no-ext-diff --binary
+        when: lint.exit_code != 0 || test.exit_code != 0
       - id: repair
         type: agent
         model: cheap
@@ -68,5 +79,5 @@ steps:
         prompt: repair.md
         history: true
         when: lint.exit_code != 0 || test.exit_code != 0
-        inputs: [task, plan, repair.history, lint.exit_code, lint.output, test.exit_code, test.output]
+        inputs: [task, plan, implement.output, implement.changed_files, repair.history, lint.exit_code, lint.output, test.exit_code, test.output, workspace_state.output]
         writes: true
