@@ -53,13 +53,13 @@ steps:
         type: exec
         program: npm
         args: [run, lint, --if-present]
-        parallel: true
+        parallel: verification
         console: on-failure
       - id: test
         type: exec
         program: npm
         args: [test]
-        parallel: true
+        parallel: verification
         console: on-failure
       - id: workspace_state
         type: shell

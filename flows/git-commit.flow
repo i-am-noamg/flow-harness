@@ -51,14 +51,14 @@ steps:
 
   - id: status
     type: exec
-    parallel: true
+    parallel: commit-context
     program: git
     args: [status, --short]
     when: 'msg == "" || (new_branch == true && branch == "")'
 
   - id: staged_diff
     type: exec
-    parallel: true
+    parallel: commit-context
     program: git
     args: [diff, --cached]
     console: on-failure
@@ -120,7 +120,7 @@ steps:
 
   - id: commit_details
     type: exec
-    parallel: true
+    parallel: commit-result
     program: git
     args: [show, --format=%H, --name-only, --no-renames, HEAD]
     outputFormat: lines
@@ -129,7 +129,7 @@ steps:
 
   - id: current_branch
     type: exec
-    parallel: true
+    parallel: commit-result
     program: git
     args: [branch, --show-current]
     outputFormat: single-line

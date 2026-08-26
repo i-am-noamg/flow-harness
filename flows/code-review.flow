@@ -29,7 +29,7 @@ steps:
     args: [status, --short, --untracked-files=all]
     outputFormat: text
     console: on-failure
-    parallel: true
+    parallel: evidence
 
   - id: changed_files
     type: exec
@@ -37,7 +37,7 @@ steps:
     args: [diff, --no-ext-diff, --name-only, --end-of-options, "{{base}}"]
     outputFormat: lines
     console: on-failure
-    parallel: true
+    parallel: evidence
 
   - id: diff
     type: exec
@@ -45,6 +45,7 @@ steps:
     args: [diff, --no-ext-diff, --unified=80, --end-of-options, "{{base}}"]
     outputFormat: text
     console: on-failure
+    parallel: evidence
 
   - id: untracked_files
     type: exec
@@ -53,6 +54,7 @@ steps:
     outputFormat: lines
     console: on-failure
     when: include_untracked == true
+    parallel: evidence
 
   - id: behavior_review
     type: agent
@@ -64,7 +66,7 @@ steps:
     tools: [read, grep, find, ls]
     inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
     outputFormat: text
-    parallel: true
+    parallel: specialist-review
 
   - id: impact_review
     type: agent
@@ -76,7 +78,7 @@ steps:
     tools: [read, grep, find, ls]
     inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
     outputFormat: text
-    parallel: true
+    parallel: specialist-review
 
   - id: review
     type: agent

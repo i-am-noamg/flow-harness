@@ -9,7 +9,7 @@ import type { Workflow } from "../src/types.js";
 
 const node = process.execPath;
 
-function command(id: string, delay: number, parallel = false) {
+function command(id: string, delay: number, parallel?: string) {
   return { id, type: "exec" as const, parallel, program: node, args: ["-e", `setTimeout(() => console.log(${JSON.stringify(id)}), ${delay})`] };
 }
 
@@ -27,7 +27,7 @@ const parallelBarrier = [
 ].join("\n");
 
 function barrierCommand(id: string, peer: string) {
-  return { id, type: "exec" as const, parallel: true, program: node, args: ["-e", parallelBarrier, id, peer], timeout: 10_000 };
+  return { id, type: "exec" as const, parallel: "batch", program: node, args: ["-e", parallelBarrier, id, peer], timeout: 10_000 };
 }
 
 test("parallel batches preserve declaration order and wait at barriers", async () => {
@@ -47,21 +47,49 @@ test("parallel batches preserve declaration order and wait at barriers", async (
   assert.deepEqual(saved.steps.map((step: { id: string }) => step.id), ["slow", "fast", "after"]);
 });
 
-test("parallel steps cannot depend on sibling artifacts", () => {
-  assert.throws(() => validateWorkflow({
-    name: "invalid-parallel",
+test("named parallel groups run concurrently and create barriers between groups", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "flow-parallel-groups-"));
+  const requireEvidence = 'if (!require("node:fs").existsSync("first.done") || !require("node:fs").existsSync("second.done")) throw new Error("evidence group did not finish");';
+  const workflow: Workflow = {
+    name: "parallel-groups",
     steps: [
-      { ...command("first", 1, true), outputs: ["value"] },
-      { ...command("second", 1, true), args: ["-e", "console.log('ok')", "{{first.value}}"] },
+      { ...barrierCommand("first", "second"), parallel: "evidence" },
+      { ...barrierCommand("second", "first"), parallel: "evidence" },
+      { ...barrierCommand("review-one", "review-two"), parallel: "specialist-review", args: ["-e", `${requireEvidence}\n${parallelBarrier}`, "review-one", "review-two"] },
+      { ...barrierCommand("review-two", "review-one"), parallel: "specialist-review", args: ["-e", `${requireEvidence}\n${parallelBarrier}`, "review-two", "review-one"] },
     ],
-  }), /depend on sibling artifact/);
+  };
+  const run = await execute({ workflow, root: cwd, cwd, output: "quiet" });
+  assert.equal(run.status, "succeeded");
+  assert.deepEqual(run.steps.map((step) => step.id), ["first", "second", "review-one", "review-two"]);
+});
+
+test("parallel steps cannot depend on sibling artifacts", () => {
+  for (const parallel of ["evidence", "review"] as const) {
+    assert.throws(() => validateWorkflow({
+      name: "invalid-parallel",
+      steps: [
+        { ...command("first", 1, parallel), outputs: ["value"] },
+        { ...command("second", 1, parallel), args: ["-e", "console.log('ok')", "{{first.value}}"] },
+      ],
+    }), /depend on sibling artifact/);
+  }
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "parallel-barrier-dependency",
+    steps: [
+      { ...command("first", 1, "evidence"), outputs: ["value"] },
+      { ...command("second", 1, "review"), args: ["-e", "console.log('ok')", "{{first.value}}"] },
+    ],
+  }));
 });
 
 test("parallel batches reject writing agents", () => {
-  assert.throws(() => validateWorkflow({
-    name: "invalid-agent",
-    steps: [
-      { id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", parallel: true, writes: true, prompt: "prompt.md" },
-    ],
-  }), /writing agents cannot run in parallel/);
+  for (const parallel of ["evidence", "review"] as const) {
+    assert.throws(() => validateWorkflow({
+      name: "invalid-agent",
+      steps: [
+        { id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", parallel, writes: true, prompt: "prompt.md" },
+      ],
+    }), /writing agents cannot run in parallel/);
+  }
 });

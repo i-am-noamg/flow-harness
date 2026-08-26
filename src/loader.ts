@@ -65,9 +65,10 @@ export function validateWorkflow(w: Workflow): void {
 
 function validateParallelBatches(steps: unknown[], path: string): void {
   for (let index = 0; index < steps.length;) {
-    if (!(steps[index] as Partial<Step>)?.parallel) { index++; continue; }
+    const parallel = (steps[index] as Partial<Step>)?.parallel;
+    if (typeof parallel !== "string" || !parallel.trim()) { index++; continue; }
     const batch: Partial<Step>[] = [];
-    while (index < steps.length && (steps[index] as Partial<Step>)?.parallel) batch.push(steps[index] as Partial<Step>), index++;
+    while (index < steps.length && (steps[index] as Partial<Step>)?.parallel === parallel) batch.push(steps[index] as Partial<Step>), index++;
     const ids = new Set(batch.map((step) => step.id));
     const outputs = new Set<string>();
     const contexts = new Set<string>();
@@ -146,7 +147,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopWhen !== undefined) validateConditionField(step.stopWhen, step.id, "stopWhen");
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
-    if (step.parallel !== undefined && typeof step.parallel !== "boolean") throw new Error(`${step.id}: parallel must be a boolean`);
+    if (step.parallel !== undefined && (typeof step.parallel !== "string" || !step.parallel.trim())) throw new Error(`${step.id}: parallel must be a non-empty string`);
     if (step.history !== undefined && typeof step.history !== "boolean") throw new Error(`${step.id}: history must be a boolean`);
     if (step.history && !allowHistory) throw new Error(`${step.id}: history belongs on loop-body steps, not top-level steps`);
     if (step.type === "loop" && step.history) throw new Error(`${step.id}: history belongs on loop-body steps, not loops`);

@@ -126,6 +126,19 @@ test("condition syntax supports nested boolean expressions without resolving art
   }));
 });
 
+test("parallel requires a non-empty named group", () => {
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "parallel-groups",
+    steps: [{ id: "named", type: "exec", program: "echo", parallel: "evidence" }],
+  }));
+  for (const parallel of ["", "   ", 1, true, false] as const) {
+    assert.throws(() => validateWorkflow({
+      name: "invalid-parallel-group",
+      steps: [{ id: "step", type: "exec", program: "echo", parallel }],
+    } as any), /step: parallel must be a non-empty string/);
+  }
+});
+
 test("condition syntax rejects malformed when, stopWhen, until, and variant conditions", () => {
   for (const [field, expression, step, message] of [
     ["when", "ready == true &&", { id: "when", type: "exec", program: "echo" }, /when: invalid when condition/],

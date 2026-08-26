@@ -183,16 +183,17 @@ export function updateRunMetadata(run: RunState): void {
   run.metrics = { wall_duration_ms: Math.max(0, Date.parse(run.finished_at!) - Date.parse(run.started_at)), step_duration_ms };
 }
 
-/** Run consecutive marked steps with isolated artifacts and coordinator-owned persistence. */
+/** Run consecutive steps in the same parallel group with isolated artifacts and coordinator-owned persistence. */
 async function executeSteps(steps: Step[], execute: (step: Step) => Promise<StepControl>, context?: ExecutionContext): Promise<StepControl> {
   for (let index = 0; index < steps.length;) {
-    if (!steps[index].parallel) {
+    const parallel = steps[index].parallel;
+    if (typeof parallel !== "string" || !parallel.trim()) {
       const control = await execute(steps[index++]);
       if (control !== "continue") return control;
       continue;
     }
     const batch: Step[] = [];
-    while (index < steps.length && steps[index].parallel) batch.push(steps[index++]);
+    while (index < steps.length && steps[index].parallel === parallel) batch.push(steps[index++]);
     const results = context
       ? await Promise.all(batch.map((step) => executeParallelStep(step, context)))
       : await Promise.all(batch.map(async (step) => ({ control: await execute(step), steps: [], artifacts: {} as ArtifactMap })));

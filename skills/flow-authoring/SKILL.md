@@ -48,7 +48,7 @@ Apply these values to every flow design:
    - one output variable: use `single-line` for a scalar line or `text` for prose/multi-line text;
    - multiple named output variables: use `json` and declare the field names in `outputs`;
    - keep the fields and any schema flow-specific. Do not add harness-wide assumptions for one workflow.
-8. Use `exec` for direct commands and `shell` only when shell syntax is required. Use `parallel: true` only for independent, read-only steps; preserve barriers before dependent steps.
+8. Use `exec` for direct commands and `shell` only when shell syntax is required. Use a non-empty named group such as `parallel: evidence` only for independent, read-only steps; preserve barriers before dependent steps.
 9. Validate the flow and run a representative invocation when practical. Before running a flow with permanent or hard-to-revert consequences, obtain user approval unless that action was explicitly requested.
 
 ## Design rules

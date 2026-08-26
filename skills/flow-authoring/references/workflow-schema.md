@@ -88,7 +88,7 @@ Use `exec` for a program and argument list. Use `shell` only for pipes, redirect
       when: tests.exit_code != 0
 ```
 
-Consecutive `parallel: true` steps form a read-only batch. They must be independent, cannot be shell steps or loops, and writing agents cannot run in parallel. The next unmarked step is a barrier.
+Consecutive steps with the same non-empty named group (for example, `parallel: evidence`) form a read-only batch. They must be independent, cannot be shell steps or loops, and writing agents cannot run in parallel. An unmarked step or a different group is a barrier.
 
 ## Outputs
 

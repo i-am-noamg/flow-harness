@@ -7,7 +7,7 @@ import { execute } from "../src/executor.js";
 import type { FlowProgressEvent, Workflow } from "../src/types.js";
 
 const node = process.execPath;
-const command = (id: string, script: string, parallel = false) => ({ id, type: "exec" as const, parallel, program: node, args: ["-e", script] });
+const command = (id: string, script: string, parallel?: string) => ({ id, type: "exec" as const, parallel, program: node, args: ["-e", script] });
 
 test("agent progress is a transient payload-safe cumulative invocation snapshot", () => {
   const event: FlowProgressEvent = {
@@ -26,7 +26,7 @@ test("progress reports ordered step lifecycle events with loop qualification", a
     steps: [
       { ...command("skipped", "process.exit(0)"), when: "ready == true" },
       command("failed", "process.exit(1)"),
-      { id: "repeat", type: "loop", until: "done == true", maxIterations: 1, steps: [command("child", "process.exit(0)", true)] },
+      { id: "repeat", type: "loop", until: "done == true", maxIterations: 1, steps: [command("child", "process.exit(0)", "child")] },
     ],
   };
   try {
