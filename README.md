@@ -12,7 +12,7 @@ Most useful work is repeatable at some level. The goal may require judgment, but
 
 ## The orchestration layer
 
-The ecosystem already has valuable point solutions: caching, skills, subagents, and model routing. Flow does not replace them; it gives them an explicit, measurable workflow in which to work together.
+The ecosystem already has valuable point solutions: caching, skills, subagents, model routing, and increasingly, agent-specific workflow features. Flow does not replace them; it gives them an explicit, measurable workflow in which to work together.
 
 | Approach | Lowers cost | Reuses instructions | Keeps handoffs bounded | Runs deterministic work directly | Repeatable execution | Bounded failure handling | Inspectable evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -20,6 +20,8 @@ The ecosystem already has valuable point solutions: caching, skills, subagents, 
 | Skills | — | ✓ | — | — | — | — | — |
 | Subagents | ✓ | — | — | — | — | — | — |
 | Model routing | ✓ | — | — | — | — | — | — |
+| [Claude Code Dynamic Workflows](https://code.claude.com/docs/en/workflows) | — | ✓ | ✓ | — | ✓ | Script-defined | ✓ |
+| [Cursor Automations](https://cursor.com/docs/cloud-agent/automations) | — | ✓ | — | — | ✓ | — | ✓ |
 | **Flow** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Flow makes the repeatable parts of a task explicit: commands, dependencies, handoffs, checks, conditions, and retries. Agents receive the context they need and focus on the decisions that require judgment. That is the difference between a chat session and a workflow.
