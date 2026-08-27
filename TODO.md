@@ -17,11 +17,13 @@ Each item should be independently implementable as a focused commit.
 - [x] Make condition handling deterministic: distinguish a known `false` condition from an unknown artifact or unsupported expression instead of silently skipping or retrying. Define and test the resulting failure behavior.
 - [x] Validate `when` and `stopWhen` expressions when loading a workflow. This is a fail-fast syntax check only; evaluation still happens during execution after artifacts exist. Share the condition grammar/parser with `until` validation so all three condition types behave consistently.
 - [x] Make workflow output expressions explicit and type-safe: support scalar paths/literals, boolean conditions, and `if(condition, when_true, when_false)` while preserving intentional `false`, `0`, and empty strings.
+- [ ] Research using Pi session fork for allowing a cache preheat agent "base session" that agent steps could fork from to avoid multiple cache misses on file reads.
 
-## `code-change` flow
+## Repo flows
 
 - [x] Replace the current combined `test_and_repair` loop with independent `npm run lint --if-present` and `npm test` commands that run in parallel, then invoke the bounded repair agent only when either command fails.
 - [x] Preserve complete lint and test command evidence in `.flow/runs/<run-id>.json` while passing only the explicitly requested, useful results into repair prompts.
+- [ ] Create an optimize-flow flow.
 
 ## Workflow authoring
 

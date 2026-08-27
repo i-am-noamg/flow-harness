@@ -5,7 +5,7 @@ import { runExec, runShell } from "./command.js";
 import { stripAnsi } from "./ansi.js";
 import { evaluateCondition } from "./conditions.js";
 import { evaluateOutputExpression, OutputResolutionError } from "./outputs.js";
-import { AgentExecutionError, createAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
+import { AgentExecutionError, createAgentSession, createForkedAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
 import type { AgentStep, AgentUsage, FlowAgentProgressEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
@@ -290,13 +290,19 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     const effectiveTools = resolveEffectiveTools(agentStep.tools, agentStep.writes ?? false);
     const before = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
     let sharedSession: AgentSessionHandle | undefined;
+    if (agentStep.context && agentStep.forkContext) throw new Error(`${agentStep.id}: context and forkContext cannot both be set`);
     if (agentStep.context) {
       sharedSession = agentSessions.get(agentStep.context);
-      if (sharedSession && (sharedSession.model !== agentStep.model || sharedSession.writes !== (agentStep.writes ?? false) || !sameTools(sharedSession.effective_tools, effectiveTools))) throw new Error(`Shared agent context ${agentStep.context} must use the same model, writes setting, and tools allowlist`);
+      if (sharedSession && !sameAgentSessionConfig(sharedSession, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel, effectiveTools)) throw new Error(`Shared agent context ${agentStep.context} must use the same model, writes setting, thinking level, and tools allowlist`);
       if (!sharedSession) {
         sharedSession = await createAgentSession(cwd, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel, effectiveTools);
         agentSessions.set(agentStep.context, sharedSession);
       }
+    } else if (agentStep.forkContext) {
+      const source = agentSessions.get(agentStep.forkContext);
+      if (!source) throw new Error(`Forked agent context must reference an earlier retained context: ${agentStep.forkContext}`);
+      if (!sameAgentSessionConfig(source, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel, effectiveTools)) throw new Error(`Forked agent context ${agentStep.forkContext} must use the same model, writes setting, thinking level, and tools allowlist`);
+      sharedSession = await createForkedAgentSession(cwd, agentStep.model, agentStep.writes ?? false, agentStep.thinkingLevel, effectiveTools, source);
     }
     const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel, effectiveTools, (update) => {
       emitAgentProgress(onProgress, run, result, update, loopIteration);
@@ -418,8 +424,8 @@ export function resolveEffectiveAgentStep(step: AgentStep, artifacts: ArtifactMa
   return { step: variant ? { ...step, ...variant, id: step.id, variants: undefined } : step, ...(variant ? { variant } : {}) };
 }
 
-function sameTools(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((tool, index) => tool === right[index]);
+function sameAgentSessionConfig(session: AgentSessionHandle, model: string, writes: boolean, thinkingLevel: string, tools: string[]): boolean {
+  return session.model === model && session.writes === writes && session.thinkingLevel === thinkingLevel && session.effective_tools.length === tools.length && session.effective_tools.every((tool, index) => tool === tools[index]);
 }
 
 function formatStepError(error: unknown): string {

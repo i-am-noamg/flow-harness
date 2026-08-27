@@ -32,6 +32,8 @@ steps:
   prompt: prompts/inspect.md
   writes: false # true when the agent may edit files
   tools: [read, grep, find, ls] # optional allowlist: read, bash, edit, write, grep, find, ls
+  context: evidence # optional retained session name
+  # forkContext: evidence # optional isolated copy of an earlier retained context
   inputs: [task, status.output]
   outputs: [summary]
   history: true # optional; expose prior executions as step_id.history
@@ -44,6 +46,8 @@ When `tools` is omitted, `writes: false` defaults to `[read, grep, find, ls]`; `
 Use `single-line` or `text`/multi-line output for one output variable. Use `json` when producing multiple named output variables. Every agent, shell, and exec step exposes its latest canonical `step_id.output`. This is available whether or not `outputs` is declared. `outputs` adds named values alongside it; it does not replace the canonical output. Agent output is the final response text, while process output is captured stdout/stderr. Thinking, tool calls, and usage remain execution metadata rather than part of `output`.
 
 An agent's prompt interpolation and appended artifact sections are restricted to its declared `inputs`. A nested declaration such as `status.output` exposes only that path, not sibling fields under `status`; unavailable declared paths are omitted.
+
+Use `context` to retain a session for later sequential agents. Use `forkContext` to give an agent an isolated in-memory copy of an earlier retained context's public messages; it cannot be combined with `context`. The source must be declared earlier and cannot be in the same parallel batch. Source and fork must use the same model, `writes` setting, `thinkingLevel`, and effective tool allowlist. Forks are independently disposed after their run, so they are appropriate for read-only parallel fan-out.
 
 ## Process steps
 
@@ -88,7 +92,7 @@ Use `exec` for a program and argument list. Use `shell` only for pipes, redirect
       when: tests.exit_code != 0
 ```
 
-Consecutive steps with the same non-empty named group (for example, `parallel: evidence`) form a read-only batch. They must be independent, cannot be shell steps or loops, and writing agents cannot run in parallel. An unmarked step or a different group is a barrier.
+Consecutive steps with the same unique, non-empty named group (for example, `parallel: evidence`) form a read-only batch. A group name cannot be reused within the same step list. They must be independent, cannot be shell steps or loops, and writing agents cannot run in parallel. An unmarked step or a different group is a barrier.
 
 ## Outputs
 

@@ -165,7 +165,7 @@ Put reusable workflows in `flows/`. Prompts can sit alongside their flow under `
 - Use `agent` steps for inspection, planning, implementation, or other judgment; grant each the smallest necessary `tools` allowlist. The declared allowlist and tools actually called are recorded separately in run evidence.
 - Use `exec` steps for direct commands and `shell` only when shell syntax is necessary.
 - Connect steps with declared `inputs` and `outputs`. An agent prompt can interpolate and receives appended artifacts only from its declared `inputs`; a nested input such as `test.output` exposes only that path, and unavailable inputs are omitted.
-- Use `when` for conditional work, `loop` for bounded retries, and a non-empty named `parallel` group such as `parallel: evidence` for independent read-only steps. Only consecutive steps in the same group run concurrently; a different group is an automatic barrier.
+- Use `when` for conditional work, `loop` for bounded retries, and a non-empty named `parallel` group such as `parallel: evidence` for independent read-only steps. Each group name is unique within its step list; consecutive steps in that group run concurrently, and a different group or unmarked step is a barrier.
 - Validate before running: `flow validate flows/my-flow.flow`.
 
 For one-off work, create a Git-ignored flow in `.flow/tmp/` and address it by path. If it proves useful, move it to `flows/` to make it reusable:

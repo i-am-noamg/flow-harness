@@ -19,7 +19,9 @@ export interface AgentSessionHandle {
   session: any;
   model?: string;
   writes: boolean;
+  thinkingLevel?: ThinkingLevel;
   effective_tools: string[];
+  disposeAfterRun?: boolean;
 }
 
 export class AgentExecutionError extends Error {
@@ -133,7 +135,28 @@ export async function createAgentSession(cwd: string, profile?: string, writes =
     sessionManager: sdk.SessionManager.inMemory(),
     tools: effective_tools,
   });
-  return { session, model: requested, writes, effective_tools };
+  // Session compatibility is declared by the workflow profile, not its environment-resolved model ID.
+  return { session, model: profile, writes, thinkingLevel, effective_tools };
+}
+
+/** Return an independent snapshot of the session's public transcript for a fork. */
+export function copyPublicMessages(session: any): any[] {
+  if (!Array.isArray(session.messages)) throw new Error("Pi session does not expose public messages");
+  return structuredClone(session.messages);
+}
+
+/** Seed a session from a frozen public-message snapshot using Pi's documented branching API. */
+export function seedAgentSession(session: any, messages: any[]): void {
+  if (!session?.agent?.state) throw new Error("Pi session does not expose agent state for message seeding");
+  session.agent.state.messages = messages;
+}
+
+/** Create an in-memory session seeded from a frozen public-message snapshot. */
+export async function createForkedAgentSession(cwd: string, profile: string, writes: boolean, thinkingLevel: ThinkingLevel, tools: string[], source: AgentSessionHandle): Promise<AgentSessionHandle> {
+  const messages = copyPublicMessages(source.session);
+  const fork = await createAgentSession(cwd, profile, writes, thinkingLevel, tools);
+  seedAgentSession(fork.session, messages);
+  return { ...fork, disposeAfterRun: true };
 }
 
 export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel, tools?: string[], onLiveUpdate?: (update: AgentLiveUpdate) => void): Promise<AgentResult> {
@@ -192,7 +215,7 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
     if (section && !quiet) process.stdout.write("\n");
     context_usage = snapshotContextUsage(session);
     emitLiveUpdate();
-    if (!shared) session.dispose?.();
+    if (!shared || shared.disposeAfterRun) session.dispose?.();
   }
   const messages = session.messages;
   const messagesAvailable = Array.isArray(messages);

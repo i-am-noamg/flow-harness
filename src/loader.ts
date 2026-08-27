@@ -61,12 +61,16 @@ export function validateWorkflow(w: Workflow): void {
   }
   const ids = new Set<string>();
   validateSteps(w.steps, ids, "steps", false);
+  validateAgentContexts(w.steps);
 }
 
 function validateParallelBatches(steps: unknown[], path: string): void {
+  const groups = new Set<string>();
   for (let index = 0; index < steps.length;) {
     const parallel = (steps[index] as Partial<Step>)?.parallel;
     if (typeof parallel !== "string" || !parallel.trim()) { index++; continue; }
+    if (groups.has(parallel)) throw new Error(`${path}: parallel group name must be unique: ${parallel}`);
+    groups.add(parallel);
     const batch: Partial<Step>[] = [];
     while (index < steps.length && (steps[index] as Partial<Step>)?.parallel === parallel) batch.push(steps[index] as Partial<Step>), index++;
     const ids = new Set(batch.map((step) => step.id));
@@ -91,6 +95,49 @@ function validateParallelBatches(steps: unknown[], path: string): void {
       }
     }
   }
+}
+
+type AgentContextConfig = { id: string; context?: string; forkContext?: string; model: string; writes: boolean; thinkingLevel: string; tools: string[]; parallelBatch?: number };
+
+function effectiveTools(tools: string[] | undefined, writes: boolean): string[] {
+  return tools ?? (writes ? [...PI_TOOLS] : ["read", "grep", "find", "ls"]);
+}
+
+function sameAgentContextConfig(left: AgentContextConfig, right: AgentContextConfig): boolean {
+  return left.model === right.model && left.writes === right.writes && left.thinkingLevel === right.thinkingLevel && left.tools.length === right.tools.length && left.tools.every((tool, index) => tool === right.tools[index]);
+}
+
+function validateAgentContexts(steps: Step[]): void {
+  const contexts = new Map<string, AgentContextConfig>();
+  let nextParallelBatch = 0;
+  const visit = (items: Step[]): void => {
+    let previousGroup: string | undefined;
+    let parallelBatch: number | undefined;
+    for (const step of items) {
+      const group = typeof step.parallel === "string" && step.parallel.trim() ? step.parallel : undefined;
+      if (group !== previousGroup) parallelBatch = group ? ++nextParallelBatch : undefined;
+      previousGroup = group;
+      if (step.type === "loop") { visit(step.steps); continue; }
+      if (step.type !== "agent") continue;
+      const candidates = step.variants?.length ? step.variants.map((variant) => ({ ...step, ...variant })) : [step];
+      for (const candidate of candidates) {
+        const config: AgentContextConfig = { id: step.id, context: candidate.context, forkContext: candidate.forkContext, model: candidate.model, writes: candidate.writes ?? false, thinkingLevel: candidate.thinkingLevel, tools: effectiveTools(candidate.tools, candidate.writes ?? false), parallelBatch };
+        if (config.context && config.forkContext) throw new Error(`${step.id}: context and forkContext cannot both be set`);
+        if (config.forkContext) {
+          const source = contexts.get(config.forkContext);
+          if (!source) throw new Error(`${step.id}: forkContext must reference an earlier context: ${config.forkContext}`);
+          if (source.parallelBatch !== undefined && source.parallelBatch === config.parallelBatch) throw new Error(`${step.id}: forkContext cannot reference a context in the same parallel batch: ${config.forkContext}`);
+          if (!sameAgentContextConfig(source, config)) throw new Error(`${step.id}: forkContext ${config.forkContext} must use the same model, writes setting, thinking level, and tools allowlist`);
+        }
+        if (config.context) {
+          const source = contexts.get(config.context);
+          if (source && !sameAgentContextConfig(source, config)) throw new Error(`${step.id}: shared agent context ${config.context} must use the same model, writes setting, thinking level, and tools allowlist`);
+          contexts.set(config.context, config);
+        }
+      }
+    }
+  };
+  visit(steps);
 }
 
 function validateConditionField(expression: string, id: string, field: string): void {
@@ -119,6 +166,7 @@ function validateAgentVariants(step: Partial<Step>): void {
     if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
     if (variant.tools !== undefined) validateTools(variant.tools, `${step.id}.${variant.id}`);
     if (variant.context !== undefined && (typeof variant.context !== "string" || !variant.context.trim())) throw new Error(`${step.id}.${variant.id}: context must be a non-empty string`);
+    if (variant.forkContext !== undefined && (typeof variant.forkContext !== "string" || !variant.forkContext.trim())) throw new Error(`${step.id}.${variant.id}: forkContext must be a non-empty string`);
     if (variant.outputFormat !== undefined && !["text", "single-line", "json"].includes(variant.outputFormat as string)) throw new Error(`${step.id}.${variant.id}: unsupported output format`);
     if (variant.inputs !== undefined && (!Array.isArray(variant.inputs) || variant.inputs.some((input) => typeof input !== "string"))) throw new Error(`${step.id}.${variant.id}: inputs must be strings`);
     if (variant.outputs !== undefined && (!Array.isArray(variant.outputs) || variant.outputs.some((output) => typeof output !== "string"))) throw new Error(`${step.id}.${variant.id}: outputs must be strings`);
@@ -138,6 +186,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.when !== undefined && typeof step.when !== "string") throw new Error(`${step.id}: when must be a string`);
     if (step.when !== undefined) validateConditionField(step.when, step.id, "when");
     if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
+    if (step.type === "agent" && step.forkContext !== undefined && (typeof step.forkContext !== "string" || !step.forkContext.trim())) throw new Error(`${step.id}: forkContext must be a non-empty string`);
     if (step.type === "agent") {
       validateModel(step.model, step.id);
       validateThinkingLevel(step.thinkingLevel, step.id);

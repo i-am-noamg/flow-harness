@@ -56,6 +56,18 @@ steps:
     when: include_untracked == true
     parallel: evidence
 
+  - id: review_evidence
+    type: agent
+    model: capable
+    thinkingLevel: high
+    prompt: review-evidence.md
+    when: deep == true
+    writes: false
+    tools: [read, grep, find, ls]
+    context: review-evidence
+    inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
+    outputFormat: single-line
+
   - id: behavior_review
     type: agent
     model: capable
@@ -64,7 +76,8 @@ steps:
     when: deep == true
     writes: false
     tools: [read, grep, find, ls]
-    inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
+    forkContext: review-evidence
+    inputs: [focus]
     outputFormat: text
     parallel: specialist-review
 
@@ -76,7 +89,8 @@ steps:
     when: deep == true
     writes: false
     tools: [read, grep, find, ls]
-    inputs: [base, focus, include_untracked, repository_status.exit_code, repository_status.output, changed_files.exit_code, changed_files.output, diff.exit_code, diff.output, untracked_files.exit_code, untracked_files.output]
+    forkContext: review-evidence
+    inputs: [focus]
     outputFormat: text
     parallel: specialist-review
 

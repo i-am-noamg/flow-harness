@@ -83,6 +83,16 @@ test("parallel steps cannot depend on sibling artifacts", () => {
   }));
 });
 
+test("parallel batches reject forkContext dependencies on a sibling seed", () => {
+  assert.throws(() => validateWorkflow({
+    name: "same-batch-fork",
+    steps: [
+      { id: "seed", type: "agent", model: "capable", thinkingLevel: "high", prompt: "prompt.md", context: "evidence", parallel: "review" },
+      { id: "review", type: "agent", model: "capable", thinkingLevel: "high", prompt: "prompt.md", forkContext: "evidence", parallel: "review" },
+    ],
+  }), /forkContext cannot reference a context in the same parallel batch/);
+});
+
 test("parallel batches reject writing agents", () => {
   for (const parallel of ["evidence", "review"] as const) {
     assert.throws(() => validateWorkflow({

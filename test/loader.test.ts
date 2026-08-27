@@ -139,6 +139,33 @@ test("parallel requires a non-empty named group", () => {
   }
 });
 
+test("forkContext requires an earlier compatible retained context", () => {
+  const seed = agent({ id: "seed", context: "evidence", model: "capable", thinkingLevel: "high", writes: false, tools: ["read"] });
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "fork-context",
+    steps: [seed, agent({ id: "review", forkContext: "evidence", model: "capable", thinkingLevel: "high", writes: false, tools: ["read"] })],
+  }));
+  assert.throws(() => validateWorkflow({ name: "missing-fork-source", steps: [agent({ forkContext: "evidence" })] }), /forkContext must reference an earlier context/);
+  assert.throws(() => validateWorkflow({ name: "incompatible-fork", steps: [seed, agent({ id: "review", forkContext: "evidence", model: "strongest", thinkingLevel: "high", writes: false, tools: ["read"] })] }), /same model, writes setting, thinking level, and tools allowlist/);
+  assert.throws(() => validateWorkflow({ name: "invalid-fork", steps: [agent({ forkContext: " " })] }), /forkContext must be a non-empty string/);
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "fork-after-barrier",
+    steps: [
+      { ...seed, parallel: "seed" },
+      { id: "barrier", type: "exec", program: "echo" },
+      { ...agent({ id: "review", forkContext: "evidence", model: "capable", thinkingLevel: "high", writes: false, tools: ["read"] }), parallel: "review" },
+    ],
+  }));
+  assert.throws(() => validateWorkflow({
+    name: "reused-parallel-group",
+    steps: [
+      { id: "first", type: "exec", program: "echo", parallel: "review" },
+      { id: "barrier", type: "exec", program: "echo" },
+      { id: "second", type: "exec", program: "echo", parallel: "review" },
+    ],
+  }), /parallel group name must be unique: review/);
+});
+
 test("condition syntax rejects malformed when, stopWhen, until, and variant conditions", () => {
   for (const [field, expression, step, message] of [
     ["when", "ready == true &&", { id: "when", type: "exec", program: "echo" }, /when: invalid when condition/],

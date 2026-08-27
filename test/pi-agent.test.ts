@@ -4,7 +4,25 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RunStore } from "../src/artifacts.js";
-import { AgentExecutionError, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "../src/pi-agent.js";
+import { AgentExecutionError, copyPublicMessages, resolveEffectiveTools, runAgent, seedAgentSession, type AgentSessionHandle } from "../src/pi-agent.js";
+
+test("copyPublicMessages creates an independent public-transcript snapshot", () => {
+  const session = { messages: [{ role: "assistant", content: [{ type: "text", text: "seed" }] }] };
+  const copy = copyPublicMessages(session);
+  session.messages[0].content[0].text = "changed";
+  assert.deepEqual(copy, [{ role: "assistant", content: [{ type: "text", text: "seed" }] }]);
+  assert.throws(() => copyPublicMessages({}), /does not expose public messages/);
+});
+
+test("seedAgentSession installs an independent baseline in Pi agent state", () => {
+  const source = { messages: [{ role: "user", content: "evidence" }] };
+  const baseline = copyPublicMessages(source);
+  const fork = { agent: { state: { messages: [] as any[] } } };
+  seedAgentSession(fork, baseline);
+  fork.agent.state.messages[0].content = "changed";
+  assert.equal(source.messages[0].content, "evidence");
+  assert.throws(() => seedAgentSession({}, baseline), /does not expose agent state/);
+});
 
 test("resolveEffectiveTools uses documented defaults and preserves explicit lists", () => {
   assert.deepEqual(resolveEffectiveTools(undefined, false), ["read", "grep", "find", "ls"]);
