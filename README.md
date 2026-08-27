@@ -20,9 +20,22 @@ The ecosystem already has valuable point solutions: caching, skills, subagents, 
 | Skills | — | ✓ | — | — | — | — | — |
 | Subagents | ✓ | — | — | — | — | — | — |
 | Model routing | ✓ | — | — | — | — | — | — |
-| [Claude Code Dynamic Workflows](https://code.claude.com/docs/en/workflows) | — | ✓ | ✓ | — | ✓ | Script-defined | ✓ |
-| [Cursor Automations](https://cursor.com/docs/cloud-agent/automations) | — | ✓ | — | — | ✓ | — | ✓ |
 | **Flow** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Flow composes those standard primitives. It also differs from adjacent workflow products in where workflows live, how they run, and what evidence they preserve.
+
+### Workflow products
+
+| Approach | Coding-agent-native orchestration | Repo-local definition | Direct deterministic steps | Optimization-grade persisted evidence |
+| --- | --- | --- | --- | --- |
+| Automation platforms (e.g. [n8n](https://docs.n8n.io/build/understand-workflows.md), Make, Zapier) | — | — | ✓ | — |
+| [Claude Code Dynamic Workflows](https://code.claude.com/docs/en/workflows) | ✓ | ✓ | — | — |
+| [Cursor Automations](https://cursor.com/docs/cloud-agent/automations) | — | — | — | — |
+| **Flow** | ✓ | ✓ | ✓ | ✓ |
+
+Optimization-grade persisted evidence captures the inputs, artifacts, command output, actual tool calls, model settings and usage, timing, and metrics an agent needs to improve a workflow.
+
+Flow is designed to make agent work faster, more reliable, and more token-efficient: it runs known work directly, gives agents only the context they need, routes routine work to cheaper models, validates declared control flow, and records the metrics needed to improve the next run. Results depend on the workflow and model configuration; Flow makes those trade-offs measurable.
 
 Flow makes the repeatable parts of a task explicit: commands, dependencies, handoffs, checks, conditions, and retries. Agents receive the context they need and focus on the decisions that require judgment. That is the difference between a chat session and a workflow.
 
