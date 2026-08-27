@@ -47,7 +47,9 @@ Use `single-line` or `text`/multi-line output for one output variable. Use `json
 
 An agent's prompt interpolation and appended artifact sections are restricted to its declared `inputs`. A nested declaration such as `status.output` exposes only that path, not sibling fields under `status`; unavailable declared paths are omitted.
 
-Use `context` to retain a session for later sequential agents. Use `forkContext` to give an agent an isolated in-memory copy of an earlier retained context's public messages; it cannot be combined with `context`. The source must be declared earlier and cannot be in the same parallel batch. Source and fork must use the same model, `writes` setting, `thinkingLevel`, and effective tool allowlist. Forks are independently disposed after their run, so they are appropriate for read-only parallel fan-out.
+Use `context` to retain a compatible agent session for later sequential agents. It carries the full public conversation and tool transcript, and can reuse provider prompt caches. Use `forkContext` to give an agent an isolated in-memory copy of an earlier retained context's public messages; it cannot be combined with `context`. The source must be declared earlier and cannot be in the same parallel batch. Source and fork must use the same model, `writes` setting, `thinkingLevel`, and effective tool allowlist. Forks are independently disposed after their run, so they are appropriate for read-only parallel fan-out.
+
+`history: true` is different: it is available only on a loop-body step and exposes that step's prior execution results as the explicit `step_id.history` artifact. It works for agent and process steps and can cross model, tool, and write-permission boundaries, but contains selected step outputs rather than a full agent transcript and adds prompt input when declared. Use it when a later step must start fresh or is incompatible with a retained session. Do not combine it with `context` for the same compatible repeated agent unless the duplicate explicit artifact is deliberately needed.
 
 ## Process steps
 

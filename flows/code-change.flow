@@ -73,7 +73,7 @@ steps:
         model: cheap
         thinkingLevel: medium
         prompt: repair.md
-        history: true
+        context: repair
         when: lint.exit_code != 0 || test.exit_code != 0
-        inputs: [task, plan, implement.output, implement.changed_files, repair.history, lint.exit_code, lint.output, test.exit_code, test.output, workspace_state.output]
+        inputs: [task, plan, implement.output, implement.changed_files, lint.exit_code, lint.output, test.exit_code, test.output, workspace_state.output]
         writes: true

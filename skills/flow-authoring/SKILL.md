@@ -56,7 +56,7 @@ Apply these values to every flow design:
 - Prefer deterministic `exec` or `shell` steps over agent steps whenever they can reliably perform the task; reserve agents for judgment, interpretation, or adaptation.
 - Keep prompts concise, operational, and explicit about whether the agent may modify files.
 - Write short, specific, indicative descriptions for the workflow and its inputs: state what the flow does, when it applies, and what each input controls. Prefer one useful sentence over implementation detail or generic wording.
-- Keep complete evidence in run artifacts but expose only useful declared outputs to later steps.
+- Keep complete evidence in run artifacts but expose only useful declared outputs to later steps. For compatible sequential agents, prefer retained `context` over loop `history`: context carries the full transcript and can reuse prompt caches. Use `history` only for explicit prior loop-result artifacts across fresh, incompatible, or process-step boundaries; do not duplicate it into a compatible retained session without a specific reason.
 - Make retries bounded and meaningful. A repair loop must have a concrete success condition and an iteration limit.
 - Do not hide command failures with `when`, `stopWhen`, or output formatting.
 - Respect repository values: reliability, efficiency, simplicity, and optimizability.
