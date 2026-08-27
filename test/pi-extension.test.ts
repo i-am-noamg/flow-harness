@@ -203,12 +203,14 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
   }
 });
 
-test("Flow injected guidance requires saved-run inspection and rejects inference", async () => {
+test("Flow injected guidance makes saved-run inspection conditional and rejects inference", async () => {
   const pi = fakePi();
   flowExtension(pi as any);
   const handler = pi.handlers.get("before_agent_start");
   const result = await handler({ systemPrompt: "base", systemPromptOptions: { cwd: process.cwd() } });
-  assert.match(result.systemPrompt, /exact implementation facts, verification evidence, failures, metrics, or evidence to optimize the workflow/);
+  assert.match(result.systemPrompt, /inspect_flow_run only when exact implementation facts, verification evidence, failures, metrics, or optimization evidence are needed/);
+  assert.match(result.systemPrompt, /rather than invoking `flow`, `npm run dev -- run`/);
   assert.match(result.systemPrompt, /never infer omitted details/);
+  assert.match(pi.tools.get("run_flow").description, /Prefer this tool over invoking flow or npm run dev/);
   assert.match(pi.tools.get("inspect_flow_run").description, /dotted raw step paths/);
 });

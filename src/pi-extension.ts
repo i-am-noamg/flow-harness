@@ -171,7 +171,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
     const catalog = await listFlows(event.systemPromptOptions.cwd);
     return { systemPrompt: `${event.systemPrompt}\n\nFlow coordination:\nA flow is a declarative workflow made of explicit agent and process steps. Flows are useful when work is repeatable and benefits from explicit orchestration for reliability, token efficiency, or future optimization. A temporary flow is also appropriate for one-off or session-specific work when orchestration would make the result more reliable or efficient. Trivial one-off actions can be done directly.\n\nPrefer a relevant existing flow. Existing flows may be edited or extended when that improves them or adds needed capabilities; do not change one merely as a side effect of completing an unrelated task. Creating or editing a flow is generally easy to revert, so proceed when the user's intent is clear. Before running a flow with permanent or hard-to-revert consequences, such as commits, pushes, destructive changes, or deployments, ask for approval unless the user explicitly requested that action. When the intended flow or change is unclear, ask the user before proceeding.\n\nTemporary flows live under .flow/tmp/ and are Git-ignored. Lifecycle: create .flow/tmp/<name>.flow; validate with validate_flow or flow validate .flow/tmp/<name>.flow; run with run_flow or flow run .flow/tmp/<name>.flow; optionally promote by moving or copying it to flows/<name>.flow, after checking any flow-local prompt references. Bare names resolve only under flows/; temporary flows must always use their explicit path.
 
-When a listed workflow matches the task, prefer the flow tools: after creating or editing a flow, use validate_flow; then use run_flow with its declared inputs. After a flow, use inspect_flow_run on its saved run whenever you need exact implementation facts, verification evidence, failures, metrics, or evidence to optimize the workflow; request targeted dotted fields to keep context bounded. Use direct shell or file tools for trivial one-off work or when no relevant flow exists.\n\n${formatFlowCatalog(catalog)}\nPass values through declared workflow inputs. Use validate_flow after creating or editing a flow. Treat flow results as evidence: never infer omitted details; inspect the saved run when exact evidence is needed.` };
+When a listed workflow matches the task, use the flow tools rather than invoking \`flow\`, \`npm run dev -- run\`, or another workflow CLI wrapper through bash: after creating or editing a flow, use validate_flow; then use run_flow with its declared inputs. Use a CLI workflow command only when the user explicitly requests that command or the corresponding flow tool is unavailable. Inspect a saved run with inspect_flow_run only when exact implementation facts, verification evidence, failures, metrics, or optimization evidence are needed; request targeted dotted fields to keep context bounded. Use direct shell or file tools for trivial one-off work or when no relevant flow exists.\n\n${formatFlowCatalog(catalog)}\nPass values through declared workflow inputs. Use validate_flow after creating or editing a flow. Treat flow results as evidence: never infer omitted details; inspect the saved run when exact evidence is needed.` };
   });
 
   pi.registerEntryRenderer<FlowEntry>("flow-run", (entry, { expanded }, theme) => {
@@ -185,7 +185,7 @@ When a listed workflow matches the task, prefer the flow tools: after creating o
   pi.registerTool({
     name: "run_flow",
     label: "Run flow",
-    description: "Run a declarative workflow with its declared inputs. Use a flows/ name or an explicit path for temporary .flow/tmp/ workflows. Returns its status, declared outputs, failures, changed files, and run ID.",
+    description: "Run a declarative workflow with its declared inputs. Prefer this tool over invoking flow or npm run dev workflow commands through bash. Use a flows/ name or an explicit path for temporary .flow/tmp/ workflows. Returns its status, declared outputs, failures, changed files, and run ID.",
     parameters: FlowRunParams,
     renderCall(params, theme, { expanded }) {
       const title = theme.fg("toolTitle", theme.bold("run_flow ")) + theme.fg("accent", params.flow);
@@ -241,7 +241,7 @@ When a listed workflow matches the task, prefer the flow tools: after creating o
   pi.registerTool({
     name: "validate_flow",
     label: "Validate flow",
-    description: "Validate a flow before running or after editing it; use an explicit .flow/tmp/ path for temporary workflows.",
+    description: "Validate a flow before running or after editing it; prefer this tool over invoking flow validate through bash, and use an explicit .flow/tmp/ path for temporary workflows.",
     parameters: FlowParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
