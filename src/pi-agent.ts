@@ -21,6 +21,8 @@ export interface AgentSessionHandle {
   writes: boolean;
   thinkingLevel?: ThinkingLevel;
   effective_tools: string[];
+  /** Pi session ID, also used as the OpenAI Codex prompt-cache routing key. */
+  cache_key?: string;
   disposeAfterRun?: boolean;
 }
 
@@ -116,7 +118,7 @@ export function resolveEffectiveTools(tools: string[] | undefined, writes = fals
   return writes ? ["read", "bash", "edit", "write", "grep", "find", "ls"] : ["read", "grep", "find", "ls"];
 }
 
-export async function createAgentSession(cwd: string, profile?: string, writes = false, thinkingLevel?: ThinkingLevel, tools?: string[]): Promise<AgentSessionHandle> {
+export async function createAgentSession(cwd: string, profile?: string, writes = false, thinkingLevel?: ThinkingLevel, tools?: string[], cacheKey?: string): Promise<AgentSessionHandle> {
   const sdk: any = await import("@earendil-works/pi-coding-agent");
   const runtime = await sdk.ModelRuntime.create();
   let model: any;
@@ -132,11 +134,11 @@ export async function createAgentSession(cwd: string, profile?: string, writes =
     model,
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
     modelRuntime: runtime,
-    sessionManager: sdk.SessionManager.inMemory(),
+    sessionManager: sdk.SessionManager.inMemory(cwd, cacheKey ? { id: cacheKey } : undefined),
     tools: effective_tools,
   });
   // Session compatibility is declared by the workflow profile, not its environment-resolved model ID.
-  return { session, model: profile, writes, thinkingLevel, effective_tools };
+  return { session, model: profile, writes, thinkingLevel, effective_tools, cache_key: session.sessionId };
 }
 
 /** Return an independent snapshot of the session's public transcript for a fork. */
@@ -154,7 +156,7 @@ export function seedAgentSession(session: any, messages: any[]): void {
 /** Create an in-memory session seeded from a frozen public-message snapshot. */
 export async function createForkedAgentSession(cwd: string, profile: string, writes: boolean, thinkingLevel: ThinkingLevel, tools: string[], source: AgentSessionHandle): Promise<AgentSessionHandle> {
   const messages = copyPublicMessages(source.session);
-  const fork = await createAgentSession(cwd, profile, writes, thinkingLevel, tools);
+  const fork = await createAgentSession(cwd, profile, writes, thinkingLevel, tools, source.cache_key ?? source.session.sessionId);
   seedAgentSession(fork.session, messages);
   return { ...fork, disposeAfterRun: true };
 }
