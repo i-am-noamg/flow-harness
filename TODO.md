@@ -47,4 +47,4 @@ These skills should ship with the Pi flow extension, alongside the flow tools, r
 - [x] Flow run status that's shown to the user step index should be 1 based and not 0 based
 - [ ] Show the user but preferably not the agent what were the inputs for `run_flow` call
 - [ ] Show the user but not the agent the outputs of agent steps while a flow is running
-- [ ] When running $<flow> manually, make the output prettier presented
+- [ ] When running flows make the output prettier presented

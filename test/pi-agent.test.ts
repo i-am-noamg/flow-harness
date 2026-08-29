@@ -81,6 +81,27 @@ test("runAgent reports transient cumulative turn usage without changing final us
   assert.equal(result.usage?.cost?.total, 0.03);
 });
 
+test("runAgent reports partial Pi usage immediately without double counting completed usage", async () => {
+  let listener: ((event: any) => void) | undefined;
+  const reportedUsage = { input: 10, output: 5, totalTokens: 15 };
+  const session: any = {
+    messages: [], thinkingLevel: "low",
+    subscribe(callback: (event: any) => void) { listener = callback; return () => undefined; },
+    async prompt() {
+      listener?.({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done", partial: { usage: reportedUsage } } });
+      this.messages.push({ role: "assistant", content: "done", stopReason: "stop", usage: reportedUsage });
+      listener?.({ type: "agent_end" });
+    },
+  };
+  const shared: AgentSessionHandle = { session, writes: false, effective_tools: ["read"] };
+  const updates: any[] = [];
+  const result = await runAgent("prompt", process.cwd(), undefined, false, true, shared, "", {}, undefined, undefined, (update) => updates.push(update));
+
+  assert.deepEqual(updates[0], { usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15 }, turns: 0, tool_calls: 0, retries: 0 });
+  assert.deepEqual(updates.at(-1), { usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15 }, turns: 1, tool_calls: 0, retries: 0 });
+  assert.equal(result.usage?.totalTokens, 15);
+});
+
 test("runAgent records stable tool calls and Pi context snapshots", async () => {
   const session: any = {
     messages: [], thinkingLevel: "low", subscribe() { return () => undefined; },

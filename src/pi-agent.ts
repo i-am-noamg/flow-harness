@@ -170,23 +170,28 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
   const before = Array.isArray(beforeMessages) ? beforeMessages.length : undefined;
   let retries = 0;
   let lastLiveSignature = "";
+  let partialUsage: any;
+  let partialUsageAssistantCount = 0;
   let section: "thinking" | "output" | undefined;
   const emitLiveUpdate = (): void => {
     if (!onLiveUpdate || !Array.isArray(session.messages)) return;
     const assistants = session.messages.slice(before ?? 0).filter((message: any) => message.role === "assistant");
     const tool_calls = assistants.reduce((count: number, message: any) => count + (Array.isArray(message.content) ? message.content.filter((part: any) => part.type === "toolCall").length : 0), 0);
-    const hasUsage = assistants.some((message: any) => message.usage != null);
-    const signature = `${assistants.length}:${tool_calls}:${retries}:${hasUsage ? JSON.stringify(assistants.map((message: any) => message.usage)) : ""}`;
+    // A partial snapshot belongs to the assistant message in progress. Once that
+    // message is in the transcript, its completed usage replaces the snapshot.
+    const currentPartialUsage = partialUsageAssistantCount === assistants.length ? partialUsage : undefined;
+    const usageSources = [...assistants.map((message: any) => message.usage).filter(Boolean), ...(currentPartialUsage ? [currentPartialUsage] : [])];
+    const signature = `${assistants.length}:${tool_calls}:${retries}:${JSON.stringify(usageSources)}`;
     if (signature === lastLiveSignature) return;
     lastLiveSignature = signature;
     const usage = emptyUsage();
-    if (hasUsage) for (const message of assistants) addUsage(usage, message.usage);
+    for (const source of usageSources) addUsage(usage, source);
     // Keep the transient payload a faithful, compact snapshot of reported usage.
     // addUsage preserves optional final-result fields as zeroes, but do not invent
     // optional metrics that Pi did not report for this invocation.
-    if (!assistants.some((message: any) => typeof message.usage?.cacheWrite1h === "number")) delete usage.cacheWrite1h;
-    if (!assistants.some((message: any) => typeof message.usage?.reasoning === "number")) delete usage.reasoning;
-    onLiveUpdate({ ...(hasUsage ? { usage } : {}), turns: assistants.length, tool_calls, retries });
+    if (!usageSources.some((source) => typeof source.cacheWrite1h === "number")) delete usage.cacheWrite1h;
+    if (!usageSources.some((source) => typeof source.reasoning === "number")) delete usage.reasoning;
+    onLiveUpdate({ ...(usageSources.length ? { usage } : {}), turns: assistants.length, tool_calls, retries });
   };
   const printSection = (next: "thinking" | "output"): void => {
     if (section === next) return;
@@ -195,6 +200,13 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
   };
   const unsubscribe = session.subscribe((event: any) => {
     if (event.type === "agent_end" && event.willRetry) retries++;
+    if (event.type === "message_update") {
+      const update = event.assistantMessageEvent;
+      if (update.partial?.usage != null) {
+        partialUsage = update.partial.usage;
+        partialUsageAssistantCount = Array.isArray(session.messages) ? session.messages.slice(before ?? 0).filter((message: any) => message.role === "assistant").length : 0;
+      }
+    }
     emitLiveUpdate();
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
