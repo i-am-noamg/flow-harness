@@ -18,7 +18,7 @@ Each item should be independently implementable as a focused commit.
 - [x] Validate `when` and `stopWhen` expressions when loading a workflow. This is a fail-fast syntax check only; evaluation still happens during execution after artifacts exist. Share the condition grammar/parser with `until` validation so all three condition types behave consistently.
 - [x] Make workflow output expressions explicit and type-safe: support scalar paths/literals, boolean conditions, and `if(condition, when_true, when_false)` while preserving intentional `false`, `0`, and empty strings.
 - [x] Allow a cache preheat agent "base session" that agent steps could fork from to avoid multiple cache misses on file reads.
-- [ ] Add flow name to its run logs names.
+- [x] Add flow name to its run logs names.
 
 ## Repo flows
 

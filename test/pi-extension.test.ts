@@ -30,8 +30,9 @@ test("inspect_flow_run selects raw nested agent evidence while default inspectio
     await mkdir(join(cwd, ".flow", "runs"), { recursive: true });
     const output = "x".repeat(9_000);
     const toolResult = "y".repeat(9_000);
-    await writeFile(join(cwd, ".flow", "runs", "run.json"), JSON.stringify({
-      id: "run", workflow: "test", cwd, started_at: "2025-01-01T00:00:00.000Z", status: "succeeded", steps: [{
+    const runId = "2025-01-01T00-00-00-000Z--test";
+    await writeFile(join(cwd, ".flow", "runs", `${runId}.json`), JSON.stringify({
+      id: runId, workflow: "test", cwd, started_at: "2025-01-01T00:00:00.000Z", status: "succeeded", steps: [{
         id: "agent", declared_id: "agent", type: "agent", status: "succeeded", started_at: "2025-01-01T00:00:00.000Z", result: {
           output, tool_evidence: { availability: "available", events: [{ call_id: "call", name: "read", arguments: { path: "a" }, source_order: 0, result: { content: [{ type: "text", text: "ok" }], details: { path: "a", bytes: 2, toolResult }, is_error: false, source_order: 1 } }] },
         },
@@ -41,12 +42,12 @@ test("inspect_flow_run selects raw nested agent evidence while default inspectio
     flowExtension(pi as any);
     const inspect = pi.tools.get("inspect_flow_run");
 
-    const defaultResult = await inspect.execute("call", { run_id: "run" }, undefined, undefined, { cwd });
+    const defaultResult = await inspect.execute("call", { run_id: runId }, undefined, undefined, { cwd });
     assert.match(defaultResult.details.steps[0].result.output, /\[truncated\]/);
     assert.deepEqual(defaultResult.details.steps[0].result.tool_evidence, { availability: "available", event_count: 1 });
     assert.doesNotMatch(defaultResult.content[0].text, /y{9_000}/);
 
-    const selected = await inspect.execute("call", { run_id: "run", fields: ["result.output", "result.tool_evidence.events.0.result.details"] }, undefined, undefined, { cwd });
+    const selected = await inspect.execute("call", { run_id: runId, fields: ["result.output", "result.tool_evidence.events.0.result.details"] }, undefined, undefined, { cwd });
     assert.equal(selected.details.steps[0].result.output, output);
     assert.deepEqual(selected.details.steps[0].result.tool_evidence.events[0].result.details, { path: "a", bytes: 2, toolResult });
   } finally {

@@ -95,7 +95,7 @@ steps:
         writes: true
 ```
 
-Flow validates the workflow before it runs. It persists full run evidence—including command output, agent usage, model settings, declared effective tool allowlists, tools actually called, timing, and failures—under `.flow/runs/`. Routine results stay compact; inspect a run when you need the details.
+Flow validates the workflow before it runs. It persists full run evidence—including command output, agent usage, model settings, declared effective tool allowlists, tools actually called, timing, and failures—under `.flow/runs/`. Run IDs and filenames use `<timestamp>--<normalized-workflow-name>.json` so lexical ordering is chronological. Routine results stay compact; inspect a run when you need the details.
 
 ### Agent execution metrics
 

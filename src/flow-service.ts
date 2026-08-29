@@ -90,7 +90,7 @@ export async function runFlow(request: RunFlowRequest): Promise<{ workflow: Work
 }
 
 export async function inspectRun(cwd: string, runId: string, stepId?: string): Promise<{ run: RunState; steps: StepResult[]; file: string }> {
-  if (!/^[A-Za-z0-9._-]+$/.test(runId)) throw new Error("Invalid run ID");
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z--[a-z0-9]+(?:-[a-z0-9]+)*$/.test(runId)) throw new Error("Invalid run ID");
   const file = join(cwd, ".flow", "runs", `${runId}.json`);
   const run = JSON.parse(await readFile(file, "utf8")) as RunState;
   const steps = stepId ? run.steps.filter((step) => step.id === stepId) : run.steps;

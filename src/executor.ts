@@ -38,7 +38,7 @@ function shouldRun(expression: string | undefined, artifacts: ArtifactMap): bool
 export async function execute(options: ExecuteOptions): Promise<RunState> {
   const { workflow, root, cwd } = options;
   const quiet = options.output === "quiet";
-  const run: RunState = { id: makeRunId(), workflow: workflow.name, cwd, started_at: new Date().toISOString(), status: "running", steps: [] };
+  const run: RunState = { id: makeRunId(workflow.name), workflow: workflow.name, cwd, started_at: new Date().toISOString(), status: "running", steps: [] };
   const store = new RunStore(cwd);
   const artifacts: ArtifactMap = { ...(options.inputs ?? {}) };
   const agentSessions = new Map<string, AgentSessionHandle>();

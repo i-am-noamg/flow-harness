@@ -31,10 +31,21 @@ steps:
     parallel: evidence
 
 
-  - id: run_evidence
+  - id: run_summary
     type: exec
-    program: cat
-    args: [".flow/runs/{{run_id}}.json"]
+    program: node
+    args:
+      - -e
+      - |
+        const fs = require("node:fs");
+        const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value[key]]));
+        const run = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+        const steps = run.steps.map((step) => ({
+          ...pick(step, ["id", "declared_id", "loop_id", "type", "status", "control", "started_at", "finished_at", "message", "error"]),
+          ...(step.result ? { result: pick(step.result, ["exit_code", "signal", "timed_out", "duration", "model", "provider", "response_model", "thinking_level", "prompt_chars", "output_chars", "input_chars", "context_usage", "turns", "tool_calls", "retries", "stop_reasons", "tool_names", "effective_tools", "tool_failures", "usage", "loaded_skills", "changed", "changed_files", "iterations", "until", "maxIterations", "exhausted"]) } : {}),
+        }));
+        console.log(JSON.stringify({ ...pick(run, ["id", "workflow", "started_at", "status", "outputs", "finished_at", "usage", "agent_metrics", "metrics"]), steps }, null, 2));
+      - ".flow/runs/{{run_id}}.json"
     when: run_id != ""
     console: on-failure
     outputFormat: text
@@ -47,7 +58,7 @@ steps:
     prompt: optimize.md
     writes: true
     skills: [optimize-flow]
-    inputs: [flow, task, run_id, workflow_source.output, run_evidence.output]
+    inputs: [flow, task, run_id, workflow_source.output, run_summary.output]
     outputs: [optimization_summary, baseline_evidence]
     outputFormat: json
 

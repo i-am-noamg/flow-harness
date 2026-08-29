@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { listFlows, loadFlow, resolveFlowPath, runFlow, summarizeRun } from "../src/flow-service.js";
+import { inspectRun, listFlows, loadFlow, resolveFlowPath, runFlow, summarizeRun } from "../src/flow-service.js";
 
 const node = process.execPath;
 
@@ -62,6 +62,22 @@ test("run summaries are bounded and exclude raw command output", () => {
   assert.deepEqual(summary.omitted, { steps: 1, outputs: 1 });
 });
 
+test("inspectRun accepts canonical IDs and rejects legacy or malformed IDs", async () => {
+  const cwd = await fixture();
+  const id = "2025-01-01T00-00-00-000Z--authoritative-name";
+  try {
+    await mkdir(join(cwd, ".flow", "runs"), { recursive: true });
+    await writeFile(join(cwd, ".flow", "runs", `${id}.json`), JSON.stringify({ id, workflow: "authoritative-name", cwd, started_at: "2025-01-01T00:00:00.000Z", status: "succeeded", steps: [] }));
+    const inspected = await inspectRun(cwd, id);
+    assert.equal(inspected.run.workflow, "authoritative-name");
+    for (const invalidId of ["2025-01-01T00-00-00-000Z", "authoritative-name--2025-01-01T00-00-00-000Z", "../run"]) {
+      await assert.rejects(inspectRun(cwd, invalidId), /Invalid run ID/);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("temporary flows require explicit paths while bare names resolve under flows", async () => {
   const cwd = await fixture();
   try {
@@ -74,6 +90,8 @@ test("temporary flows require explicit paths while bare names resolve under flow
 
     const result = await runFlow({ flow: ".flow/tmp/same.flow", cwd, output: "quiet" });
     assert.equal(result.run.status, "succeeded");
+    assert.match(result.run.id, /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z--temporary$/);
+    assert.equal(result.run.workflow, "temporary");
     assert.match(String(result.run.steps[0].result && "stdout" in result.run.steps[0].result ? result.run.steps[0].result.stdout : ""), /temporary/);
   } finally {
     await rm(cwd, { recursive: true, force: true });

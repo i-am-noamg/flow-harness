@@ -17,4 +17,7 @@ export class RunStore implements RunStoreLike {
   }
 }
 
-export function makeRunId(): string { return new Date().toISOString().replace(/[:.]/g, "-"); }
+export function makeRunId(workflow: string): string {
+  const prefix = workflow.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "flow";
+  return `${new Date().toISOString().replace(/[:.]/g, "-")}--${prefix}`;
+}

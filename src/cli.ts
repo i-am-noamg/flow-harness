@@ -11,7 +11,7 @@ Usage:
   flow run [workflow.flow] [options]     Run a workflow
   flow validate <workflow.flow>          Validate a workflow
   flow list                              List available workflows
-  flow inspect <run-id> [--step <id>]    Inspect a saved run
+  flow inspect <run-id> [--step <id>]    Inspect a saved run (<timestamp>--<normalized-workflow-name>)
   flow help <workflow.flow|name>         Show workflow description and inputs
 
 Workflow options:
