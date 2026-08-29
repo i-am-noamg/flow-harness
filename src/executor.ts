@@ -9,10 +9,10 @@ import { evaluateOutputExpression, OutputResolutionError } from "./outputs.js";
 import { AgentExecutionError, createAgentSession, createForkedAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
-import type { AgentResult, AgentStep, AgentUsage, FlowAgentProgressEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
+import type { AgentStep, AgentUsage, FlowAgentProgressEvent, FlowLiveActivityCallback, FlowLiveActivityEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
-export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; readonly workflowSource?: string; }
+export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; /** Extension-only transient activity; never persisted. */ onLiveActivity?: FlowLiveActivityCallback; readonly workflowSource?: string; }
 const DEFAULT_MAX_ITERATIONS = 10;
 
 function lookup(path: string, artifacts: ArtifactMap): any {
@@ -45,9 +45,9 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
   await store.save(run);
   options.onProgress?.({ type: "flow_started", run_id: run.id, flow: workflow.name, total_steps: workflow.steps.length });
   if (!quiet) console.log(`\nflow ${workflow.name} · run ${run.id}\n`);
-  const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress: options.onProgress, workflowSource: options.workflowSource };
+  const context: ExecutionContext = { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress: options.onProgress, onLiveActivity: options.onLiveActivity, workflowSource: options.workflowSource };
   try {
-    const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions, options.onProgress, undefined, undefined, options.workflowSource), context);
+    const control = await executeSteps(workflow.steps, (step) => executeStep(step, step.id, run, store, artifacts, root, cwd, quiet, agentSessions, options.onProgress, options.onLiveActivity, undefined, undefined, options.workflowSource), context);
     let status: RunState["status"];
     if (control !== "continue") status = control === "stop" ? "succeeded" : "failed";
     else {
@@ -67,7 +67,7 @@ export async function execute(options: ExecuteOptions): Promise<RunState> {
 }
 
 type StepControl = "continue" | "stop" | "fail";
-type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean; agentSessions: Map<string, AgentSessionHandle>; onProgress?: FlowProgressCallback; readonly workflowSource?: string; loopId?: string; loopIteration?: number };
+type ExecutionContext = { run: RunState; store: RunStoreLike; artifacts: ArtifactMap; root: string; cwd: string; quiet: boolean; agentSessions: Map<string, AgentSessionHandle>; onProgress?: FlowProgressCallback; onLiveActivity?: FlowLiveActivityCallback; readonly workflowSource?: string; loopId?: string; loopIteration?: number };
 
 function disposeAgentSessions(sessions: Map<string, AgentSessionHandle>): void {
   for (const handle of sessions.values()) handle.session.dispose?.();
@@ -214,11 +214,11 @@ async function executeParallelStep(step: Step, context: ExecutionContext): Promi
   const workerArtifacts: ArtifactMap = { ...context.artifacts };
   // Records are shared only for coordinator-owned, declaration-ordered persistence;
   // artifacts remain isolated until the batch joins.
-  const control = await executeStep(step, step.id, context.run, context.store, workerArtifacts, context.root, context.cwd, true, context.agentSessions, context.onProgress, context.loopId, context.loopIteration, context.workflowSource);
+  const control = await executeStep(step, step.id, context.run, context.store, workerArtifacts, context.root, context.cwd, true, context.agentSessions, context.onProgress, context.onLiveActivity, context.loopId, context.loopIteration, context.workflowSource);
   return { control, steps: [], artifacts: workerArtifacts };
 }
 
-async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, loopId?: string, loopIteration?: number, workflowSource?: string): Promise<StepControl> {
+async function executeStep(step: Step, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, onLiveActivity?: FlowLiveActivityCallback, loopId?: string, loopIteration?: number, workflowSource?: string): Promise<StepControl> {
   const result: StepResult = { id: recordId, declared_id: step.id, ...(loopId ? { loop_id: loopId } : {}), type: step.type, status: "running", started_at: new Date().toISOString() };
   run.steps.push(result); await store.save(run);
   emitStepProgress(onProgress, "step_started", run, result, loopIteration);
@@ -244,7 +244,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     }
     if (!quiet) process.stdout.write(`→ ${recordId}\r`);
     if (step.type === "loop") {
-      const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, workflowSource);
+      const control = await executeLoop(step, result, recordId, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, onLiveActivity, workflowSource);
       if (control !== "continue") return control;
       const stopped = applyStopWhen(step, result, artifacts);
       result.finished_at = new Date().toISOString(); await store.save(run);
@@ -307,6 +307,8 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     }
     const r = await runAgent(prompt, cwd, agentStep.model, agentStep.writes ?? false, quiet, sharedSession, renderedPrompt.path, renderedPrompt.input_chars, agentStep.thinkingLevel, effectiveTools, (update) => {
       emitAgentProgress(onProgress, run, result, update, loopIteration);
+    }, (activity) => {
+      emitLiveActivity(onLiveActivity, run, result, activity, loopIteration);
     });
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
@@ -350,23 +352,11 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
   }
 }
 
-const AGENT_PROGRESS_OUTPUT_LIMIT = 2000;
-
 export function emitStepProgress(onProgress: FlowProgressCallback | undefined, type: FlowStepProgressEvent["type"], run: RunState, result: StepResult, loopIteration?: number): void {
   if (!onProgress) return;
   const finished = result.finished_at ? Date.parse(result.finished_at) : Date.now();
-  const agentOutput = type === "step_finished" && result.type === "agent"
-    ? (result.result as AgentResult | undefined)?.output
-    : undefined;
-  const safeAgentOutput = typeof agentOutput === "string" && agentOutput ? stripAnsi(agentOutput) : undefined;
-  const excerpt = safeAgentOutput
-    ? safeAgentOutput.length > AGENT_PROGRESS_OUTPUT_LIMIT
-      ? `${safeAgentOutput.slice(0, AGENT_PROGRESS_OUTPUT_LIMIT)}\n[truncated]`
-      : safeAgentOutput
-    : undefined;
   const event = { run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, status: result.status, duration_ms: Math.max(0, finished - Date.parse(result.started_at)), ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}) };
-  if (type === "step_finished") onProgress({ type, ...event, ...(excerpt !== undefined ? { agent_output: excerpt } : {}) });
-  else onProgress({ type, ...event });
+  onProgress({ type, ...event });
 }
 
 function emitAgentProgress(onProgress: FlowProgressCallback | undefined, run: RunState, result: StepResult, update: { usage?: AgentUsage; turns: number; tool_calls: number; retries: number }, loopIteration?: number): void {
@@ -380,13 +370,17 @@ function emitAgentProgress(onProgress: FlowProgressCallback | undefined, run: Ru
   onProgress(event);
 }
 
-async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, workflowSource?: string): Promise<StepControl> {
+function emitLiveActivity(onLiveActivity: FlowLiveActivityCallback | undefined, run: RunState, result: StepResult, activity: { kind: FlowLiveActivityEvent["kind"]; preview: string }, loopIteration?: number): void {
+  onLiveActivity?.({ run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, duration_ms: Math.max(0, Date.now() - Date.parse(result.started_at)), kind: activity.kind, preview: activity.preview, ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}) });
+}
+
+async function executeLoop(step: LoopStep, result: StepResult, recordId: string, run: RunState, store: RunStoreLike, artifacts: ArtifactMap, root: string, cwd: string, quiet: boolean, agentSessions: Map<string, AgentSessionHandle>, onProgress?: FlowProgressCallback, onLiveActivity?: FlowLiveActivityCallback, workflowSource?: string): Promise<StepControl> {
   const maxIterations = step.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const loopResult: LoopResult = { iterations: [], until: step.until, maxIterations, exhausted: false };
   result.result = loopResult;
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     const started = new Date().toISOString();
-    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, recordId, iteration, workflowSource), { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, workflowSource, loopId: recordId, loopIteration: iteration });
+    const control = await executeSteps(step.steps, (child) => executeStep(child, `${recordId}[${iteration}].${child.id}`, run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, onLiveActivity, recordId, iteration, workflowSource), { run, store, artifacts, root, cwd, quiet, agentSessions, onProgress, onLiveActivity, workflowSource, loopId: recordId, loopIteration: iteration });
     if (control !== "continue") {
       loopResult.iterations.push({ iteration, started_at: started, finished_at: new Date().toISOString(), status: control === "stop" ? "succeeded" : "failed", until: false });
       result.status = control === "stop" ? "succeeded" : "failed"; result.control = control === "stop" ? "stop" : "continue"; result.finished_at = new Date().toISOString(); await store.save(run); return control;

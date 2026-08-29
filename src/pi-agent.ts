@@ -8,6 +8,18 @@ export interface AgentLiveUpdate {
   retries: number;
 }
 
+export interface AgentLiveActivity {
+  kind: "thinking" | "text" | "tool";
+  preview: string;
+}
+
+const LIVE_ACTIVITY_LIMIT = 240;
+
+function livePreview(value: unknown): string {
+  const text = String(value ?? "").replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\s+/g, " ").trim();
+  return text.length > LIVE_ACTIVITY_LIMIT ? `${text.slice(0, LIVE_ACTIVITY_LIMIT - 1)}…` : text;
+}
+
 function textFromMessage(message: any): string {
   if (!message) return "";
   if (typeof message.content === "string") return message.content;
@@ -161,7 +173,7 @@ export async function createForkedAgentSession(cwd: string, profile: string, wri
   return { ...fork, disposeAfterRun: true };
 }
 
-export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel, tools?: string[], onLiveUpdate?: (update: AgentLiveUpdate) => void): Promise<AgentResult> {
+export async function runAgent(prompt: string, cwd: string, profile?: string, writes = false, quiet = false, shared?: AgentSessionHandle, promptPath = "", input_chars: Record<string, number> = {}, thinkingLevel?: ThinkingLevel, tools?: string[], onLiveUpdate?: (update: AgentLiveUpdate) => void, onLiveActivity?: (activity: AgentLiveActivity) => void): Promise<AgentResult> {
   const started = Date.now();
   const handle = shared ?? await createAgentSession(cwd, profile, writes, thinkingLevel, tools);
   const session = handle.session;
@@ -208,10 +220,17 @@ export async function runAgent(prompt: string, cwd: string, profile?: string, wr
       }
     }
     emitLiveUpdate();
+    if (event.type === "tool_execution_start") {
+      const preview = livePreview(event.toolName ?? event.tool?.name ?? event.name);
+      if (preview) onLiveActivity?.({ kind: "tool", preview });
+      return;
+    }
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
     if (update.type === "thinking_delta" || update.type === "text_delta") {
       const next = update.type === "thinking_delta" ? "thinking" : "output";
+      const preview = livePreview(update.delta);
+      if (preview) onLiveActivity?.({ kind: update.type === "thinking_delta" ? "thinking" : "text", preview });
       if (!quiet) {
         printSection(next);
         process.stdout.write(update.delta);

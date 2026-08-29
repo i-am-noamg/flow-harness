@@ -28,7 +28,7 @@ Each item should be independently implementable as a focused commit.
 
 ## Workflow authoring
 
-- [ ] Add a maintained machine-readable YAML schema for `.flow` files, use it in editor/tooling integrations, and keep it synchronized with runtime validation.
+- [x] Declined: add a maintained machine-readable YAML schema for `.flow` files. Runtime validation is the source of truth; a partial editor schema would add drift risk without enough value for the current agent-driven authoring workflow.
 
 ## Pi-flow extension
 

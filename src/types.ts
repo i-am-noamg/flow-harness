@@ -166,8 +166,7 @@ interface FlowStepProgressEventBase {
 }
 export type FlowStepProgressEvent =
   | (FlowStepProgressEventBase & { type: "step_started" })
-  /** A bounded, display-only excerpt of final agent text; never step evidence. */
-  | (FlowStepProgressEventBase & { type: "step_finished"; agent_output?: string });
+  | (FlowStepProgressEventBase & { type: "step_finished" });
 /** Transient, payload-safe agent snapshot; usage is cumulative for this invocation, not a context snapshot. */
 export interface FlowAgentProgressEvent {
   type: "agent_progress";
@@ -187,6 +186,19 @@ export interface FlowAgentProgressEvent {
 /** Payload-safe lifecycle updates; detailed evidence remains in the saved run. */
 export type FlowProgressEvent = FlowProgressStartEvent | FlowStepProgressEvent | FlowAgentProgressEvent;
 export type FlowProgressCallback = (event: FlowProgressEvent) => void;
+/** TUI-only nested-agent activity. Never include this in progress, results, or run evidence. */
+export interface FlowLiveActivityEvent {
+  run_id: string;
+  flow: string;
+  id: string;
+  declared_id: string;
+  duration_ms: number;
+  kind: "thinking" | "text" | "tool";
+  preview: string;
+  loop_id?: string;
+  loop_iteration?: number;
+}
+export type FlowLiveActivityCallback = (event: FlowLiveActivityEvent) => void;
 
 export interface StepResult {
   id: string;

@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve, relative, join } from "node:path";
 import { execute, type ExecuteOptions } from "./executor.js";
 import { loadWorkflow } from "./loader.js";
-import type { FlowCatalogEntry, FlowProgressCallback, RunState, RunSummary, StepResult, Workflow, WorkflowInput } from "./types.js";
+import type { FlowCatalogEntry, FlowLiveActivityCallback, FlowProgressCallback, RunState, RunSummary, StepResult, Workflow, WorkflowInput } from "./types.js";
 
 export async function loadFlow(reference: string, cwd: string): Promise<Awaited<ReturnType<typeof loadWorkflow>>> {
   const path = resolveFlowPath(reference, cwd);
@@ -81,11 +81,20 @@ export interface RunFlowRequest {
 }
 
 export async function runFlow(request: RunFlowRequest): Promise<{ workflow: Workflow; run: RunState; summary: RunSummary }> {
+  return runFlowInternal(request);
+}
+
+/** Pi extension entry point for transient TUI activity; ordinary callers cannot supply it. */
+export async function runFlowForExtension(request: RunFlowRequest, onLiveActivity: FlowLiveActivityCallback): Promise<{ workflow: Workflow; run: RunState; summary: RunSummary }> {
+  return runFlowInternal(request, onLiveActivity);
+}
+
+async function runFlowInternal(request: RunFlowRequest, onLiveActivity?: FlowLiveActivityCallback): Promise<{ workflow: Workflow; run: RunState; summary: RunSummary }> {
   const path = resolveFlowPath(request.flow, request.cwd);
   if (!existsSync(path)) throw new Error(`Workflow not found: ${request.flow}`);
   const { workflow, root, workflowSource } = await loadWorkflow(path);
   const inputs = resolveInputs(workflow, request.inputs ?? {});
-  const run = await execute({ workflow, root, cwd: request.cwd, inputs, output: request.output ?? "normal", onProgress: request.onProgress, workflowSource });
+  const run = await execute({ workflow, root, cwd: request.cwd, inputs, output: request.output ?? "normal", onProgress: request.onProgress, onLiveActivity, workflowSource });
   return { workflow, run, summary: summarizeRun(run, request.cwd) };
 }
 

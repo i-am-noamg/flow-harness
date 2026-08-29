@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import flowExtension, { flowStatusText, presentAgentOutput } from "../src/pi-extension.js";
+import flowExtension, { flowStatusText } from "../src/pi-extension.js";
 import type { AgentUsage } from "../src/types.js";
 
 function fakePi() {
@@ -86,19 +86,6 @@ test("run_flow renders its flow and bounded inputs, with complete expanded param
   assert.match(expanded, /x{200}/);
 });
 
-test("agent output entries render a bounded step label without entering flow results", () => {
-  const pi = fakePi();
-  flowExtension(pi as any);
-  presentAgentOutput({ type: "step_finished", run_id: "run", flow: "flow", id: "repeat[1].report", declared_id: "report", status: "succeeded", duration_ms: 1, agent_output: "bounded agent output" }, (entry) => pi.appendEntry("flow-agent-output", entry));
-  pi.appendEntry("flow-run", { text: "Status: succeeded", details: { status: "succeeded" } });
-  assert.deepEqual(pi.entries.map((entry) => entry.type), ["flow-agent-output", "flow-run"]);
-  const theme = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text };
-  const rendered = pi.entryRenderers.get("flow-agent-output")({ data: pi.entries[0].data }, {}, theme).render(1_000).join("\n");
-  assert.match(rendered, /repeat\[1\]\.report · succeeded/);
-  assert.match(rendered, /bounded agent output/);
-  assert.doesNotMatch(JSON.stringify(pi.entries[1].data), /bounded agent output/);
-});
-
 test("run_flow uses user-only status updates and clears them without timeline updates", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "flow-extension-run-"));
   try {
@@ -124,26 +111,30 @@ test("run_flow uses user-only status updates and clears them without timeline up
     const pi = fakePi();
     flowExtension(pi as any);
     const statuses: Array<[string, string | undefined]> = [];
+    const widgets: Array<[string, string[] | undefined]> = [];
     let updates = 0;
-    const result = await pi.tools.get("run_flow").execute("call", { flow: "live" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    const ui = { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]), setWidget: (key: string, value: string[] | undefined) => widgets.push([key, value]) };
+    const result = await pi.tools.get("run_flow").execute("call", { flow: "live" }, undefined, () => updates++, { cwd, ui });
     assert.equal(updates, 0);
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/? · starting")));
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/1 · report")));
     assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
+    assert.ok(widgets.some(([key, value]) => key === "flow-activity:call" && value?.[0].includes("Flow live")));
+    assert.deepEqual(widgets.at(-1), ["flow-activity:call", undefined]);
     assert.match(result.content[0].text, /^Status: succeeded/m);
     assert.match(result.content[0].text, /Declared outputs:\n\{\n  "answer": "done\\n"\n\}/);
     assert.match(result.content[0].text, /Run ID: /);
     assert.doesNotMatch(result.content[0].text, /Inspect saved run/);
     assert.doesNotMatch(JSON.stringify(result), /stdout|stderr/);
 
-    const failed = await pi.tools.get("run_flow").execute("failed", { flow: "failed" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    const failed = await pi.tools.get("run_flow").execute("failed", { flow: "failed" }, undefined, () => updates++, { cwd, ui });
     assert.match(failed.content[0].text, /^Status: failed/m);
     assert.match(failed.content[0].text, /Failures:\n- broken/);
     assert.doesNotMatch(failed.content[0].text, /Inspect saved run/);
     assert.doesNotMatch(JSON.stringify(failed), /secret stderr|stdout|stderr/);
     assert.deepEqual(statuses.at(-1), ["flow:failed", undefined]);
 
-    const missing = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    const missing = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui });
     assert.match(missing.content[0].text, /Flow failed to start/);
     assert.deepEqual(statuses.at(-1), ["flow:bad", undefined]);
   } finally {
@@ -193,6 +184,7 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
         select: async () => "true",
         notify: (text: string) => notices.push(text),
         setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
+        setWidget: () => undefined,
         addAutocompleteProvider: (provider: any) => autocomplete.push(provider),
       },
     };
@@ -224,7 +216,7 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     assert.deepEqual(cancelled, { action: "handled" });
     assert.equal(pi.entries.length, 1);
 
-    const nonTuiCtx = { ...ctx, mode: "print", ui: { input: () => { throw new Error("must not prompt"); }, select: () => { throw new Error("must not select"); }, notify: () => { throw new Error("must not notify"); }, setStatus: () => { throw new Error("must not set status"); }, addAutocompleteProvider: () => { throw new Error("must not register autocomplete"); } } };
+    const nonTuiCtx = { ...ctx, mode: "print", ui: { input: () => { throw new Error("must not prompt"); }, select: () => { throw new Error("must not select"); }, notify: () => { throw new Error("must not notify"); }, setStatus: () => { throw new Error("must not set status"); }, setWidget: () => { throw new Error("must not set widget"); }, addAutocompleteProvider: () => { throw new Error("must not register autocomplete"); } } };
     await sessionStart({}, nonTuiCtx);
     const nonTui = await input({ text: "$manual" }, nonTuiCtx);
     assert.deepEqual(nonTui, { action: "continue" });

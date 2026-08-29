@@ -2,9 +2,9 @@ import { resolve } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
-import { inputDefinition, inspectRun, listFlows, loadFlow, resolveInputs, runFlow, summarizeRun, summarizeStep } from "./flow-service.js";
+import { inputDefinition, inspectRun, listFlows, loadFlow, resolveInputs, runFlowForExtension, summarizeRun, summarizeStep } from "./flow-service.js";
 import { formatFlowCatalog } from "./flow-catalog.js";
-import type { AgentUsage, FlowProgressEvent } from "./types.js";
+import type { AgentUsage, FlowLiveActivityEvent, FlowProgressEvent } from "./types.js";
 
 const FlowRunParams = Type.Object({
   flow: Type.String({ description: "Flow name from flows/ or an explicit .flow path; temporary flows under .flow/tmp/ require their path" }),
@@ -47,9 +47,8 @@ function summaryText(summary: ReturnType<typeof summarizeRun>): string {
 
 type FlowRunResult = { content: [{ type: "text"; text: string }]; details: ReturnType<typeof summarizeRun> | { status: "failed"; error: string } };
 type FlowEntry = { text: string; details: FlowRunResult["details"] };
-export type FlowAgentOutputEntry = { id: string; status: string; output: string };
-
-type LiveStep = { started: number; usage?: AgentUsage; turns?: number; tool_calls?: number; retries?: number };
+type LiveStep = { started: number; usage?: AgentUsage; turns?: number; tool_calls?: number; retries?: number; activity?: FlowLiveActivityEvent };
+const ACTIVITY_WIDGET_INTERVAL_MS = 250;
 
 function addUsage(total: AgentUsage, usage: AgentUsage | undefined): void {
   if (!usage) return;
@@ -82,10 +81,6 @@ function compactInputs(inputs: Record<string, unknown> | undefined, maxLength = 
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
-export function presentAgentOutput(event: FlowProgressEvent, append: (entry: FlowAgentOutputEntry) => void): void {
-  if (event.type === "step_finished" && event.agent_output !== undefined) append({ id: event.id, status: event.status, output: event.agent_output });
-}
-
 export function flowStatusText(flow: string, completed: number, total: number, started: number, active: Map<string, LiveStep>, completedUsage: AgentUsage, current = Date.now()): string {
   const activeSteps = [...active.entries()];
   const labels = activeSteps.slice(0, 3).map(([id, step]) => `${id} ${elapsed(current - step.started)}${step.usage ? ` · ${usageText(step.usage)}` : ""}`);
@@ -99,18 +94,38 @@ export function flowStatusText(flow: string, completed: number, total: number, s
   return `Flow ${flow} · ${stepIndex}/${total || "?"} · ${liveDetail} · ${elapsed(current - started)} total${hasUsage ? ` · ${usageText(usage)}` : ""}`;
 }
 
-async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string, onAgentOutput?: (entry: FlowAgentOutputEntry) => void): Promise<FlowRunResult> {
+export function flowActivityWidget(flow: string, active: Map<string, LiveStep>, current = Date.now()): string[] {
+  const steps = [...active.entries()];
+  if (!steps.length) return [`Flow ${flow}`, "Starting nested agent activity…"];
+  return steps.slice(0, 3).map(([id, step]) => {
+    const progress = [step.usage ? usageText(step.usage) : undefined, step.turns !== undefined ? `${step.turns} turn${step.turns === 1 ? "" : "s"}` : undefined, step.tool_calls !== undefined ? `${step.tool_calls} tool${step.tool_calls === 1 ? "" : "s"}` : undefined].filter(Boolean).join(" · ");
+    const latest = step.activity ? `${step.activity.kind}: ${step.activity.preview}` : "waiting for activity…";
+    return `${id} · ${elapsed(current - step.started)}${progress ? ` · ${progress}` : ""}\n${latest}`;
+  });
+}
+
+async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string): Promise<FlowRunResult> {
   const statusKey = `flow:${statusId}`;
+  const widgetKey = `flow-activity:${statusId}`;
   const started = Date.now();
   let completed = 0;
   let total = 0;
   const active = new Map<string, LiveStep>();
   const completedUsage: AgentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  let lastWidgetUpdate = 0;
   const setStatus = () => ctx.ui.setStatus(statusKey, flowStatusText(flow, completed, total, started, active, completedUsage));
-  setStatus();
-  const refresh = setInterval(setStatus, 1000);
+  const setWidget = (force = false) => {
+    const now = Date.now();
+    if (force || now - lastWidgetUpdate >= ACTIVITY_WIDGET_INTERVAL_MS) {
+      lastWidgetUpdate = now;
+      ctx.ui.setWidget(widgetKey, flowActivityWidget(flow, active, now));
+    }
+  };
+  const refreshDisplay = () => { setStatus(); setWidget(true); };
+  refreshDisplay();
+  const refresh = setInterval(refreshDisplay, 1000);
   try {
-    const { summary } = await runFlow({
+    const { summary } = await runFlowForExtension({
       flow,
       cwd,
       inputs,
@@ -124,14 +139,18 @@ async function executeFlow(flow: string, inputs: Record<string, unknown> | undef
           const step = active.get(event.id) ?? { started: Date.now() };
           active.set(event.id, { ...step, ...(event.usage ? { usage: event.usage } : {}), turns: event.turns, tool_calls: event.tool_calls, retries: event.retries });
         } else {
-          if (onAgentOutput) presentAgentOutput(event, onAgentOutput);
           const step = active.get(event.id);
           if (step?.usage) addUsage(completedUsage, step.usage);
           active.delete(event.id);
           if (!event.loop_id) completed++;
         }
         setStatus();
+        setWidget();
       },
+    }, (activity) => {
+      const step = active.get(activity.id) ?? { started: Date.now() };
+      active.set(activity.id, { ...step, activity });
+      setWidget();
     });
     return { content: [{ type: "text", text: summaryText(summary) }], details: summary };
   } catch (error) {
@@ -140,6 +159,7 @@ async function executeFlow(flow: string, inputs: Record<string, unknown> | undef
   } finally {
     clearInterval(refresh);
     ctx.ui.setStatus(statusKey, undefined);
+    ctx.ui.setWidget(widgetKey, undefined);
   }
 }
 
@@ -185,14 +205,6 @@ export default function flowExtension(pi: ExtensionAPI): void {
     return box;
   });
 
-  pi.registerEntryRenderer<FlowAgentOutputEntry>("flow-agent-output", (entry, _options, theme) => {
-    const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-    const data = entry.data ?? { id: "agent", status: "unavailable", output: "Agent output unavailable" };
-    box.addChild(new Text(theme.fg("accent", `${data.id} · ${data.status}`), 0, 0));
-    box.addChild(new Text(data.output, 0, 0));
-    return box;
-  });
-
   pi.registerTool({
     name: "run_flow",
     label: "Run flow",
@@ -208,7 +220,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
     },
     async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
-      return executeFlow(params.flow, params.inputs, cwd, ctx, toolCallId, (entry) => pi.appendEntry<FlowAgentOutputEntry>("flow-agent-output", entry));
+      return executeFlow(params.flow, params.inputs, cwd, ctx, toolCallId);
     },
   });
 
@@ -305,7 +317,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
       const inputs = await collectManualInputs(workflow, ctx);
       if (!inputs) return { action: "handled" };
       const validated = resolveInputs(workflow, inputs);
-      const result = await executeFlow(flowName, validated, ctx.cwd, ctx, `manual:${flowName}`, (entry) => pi.appendEntry<FlowAgentOutputEntry>("flow-agent-output", entry));
+      const result = await executeFlow(flowName, validated, ctx.cwd, ctx, `manual:${flowName}`);
       pi.appendEntry<FlowEntry>("flow-run", { text: result.content[0].text, details: result.details });
     } catch (error) {
       ctx.ui.notify(`Flow ${flowName}: ${error instanceof Error ? error.message : String(error)}`, "error");

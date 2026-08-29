@@ -81,6 +81,26 @@ test("runAgent reports transient cumulative turn usage without changing final us
   assert.equal(result.usage?.cost?.total, 0.03);
 });
 
+test("runAgent emits bounded ANSI-safe live activity without adding it to its result", async () => {
+  let listener: ((event: any) => void) | undefined;
+  const session: any = {
+    messages: [], thinkingLevel: "low",
+    subscribe(callback: (event: any) => void) { listener = callback; return () => undefined; },
+    async prompt() {
+      listener?.({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: `\u001b[31m${"x".repeat(300)}\u001b[0m` } });
+      listener?.({ type: "tool_execution_start", toolName: "read" });
+      this.messages.push({ role: "assistant", content: "done", stopReason: "stop" });
+    },
+  };
+  const activity: any[] = [];
+  const result = await runAgent("prompt", process.cwd(), undefined, false, true, { session, writes: false, effective_tools: ["read"] }, "", {}, undefined, undefined, undefined, (event) => activity.push(event));
+  assert.deepEqual(activity.map((event) => event.kind), ["thinking", "tool"]);
+  assert.equal(activity[0].preview.length, 240);
+  assert.doesNotMatch(activity[0].preview, /\u001b/);
+  assert.equal(activity[1].preview, "read");
+  assert.equal("activity" in result, false);
+});
+
 test("runAgent reports partial Pi usage immediately without double counting completed usage", async () => {
   let listener: ((event: any) => void) | undefined;
   const reportedUsage = { input: 10, output: 5, totalTokens: 15 };
