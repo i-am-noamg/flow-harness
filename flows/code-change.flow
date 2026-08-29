@@ -11,6 +11,7 @@ inputs:
     description: Use when the task already identifies the target scope and expected behavior; skips separate inspection and planning so implementation inspects directly.
 
 outputs:
+  summary: implementation_summary
   changed: implement.changed
   changed_files: implement.changed_files
   tests_passed: if(implement.changed == false, true, test.exit_code == 0)
@@ -41,6 +42,8 @@ steps:
     thinkingLevel: medium
     prompt: implement.md
     inputs: [task, repo_summary, plan]
+    outputs: [implementation_summary]
+    outputFormat: text
     writes: true
 
   - id: check_and_repair

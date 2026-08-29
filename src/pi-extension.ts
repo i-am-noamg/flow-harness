@@ -39,11 +39,10 @@ function setPath(target: Record<string, unknown>, path: string, value: unknown):
 }
 
 function summaryText(summary: ReturnType<typeof summarizeRun>): string {
-  const steps = summary.steps.map((step) => `${step.id}: ${step.status}${step.exit_code !== undefined ? ` (exit ${step.exit_code})` : ""}${step.error ? ` — ${step.error}` : ""}`).join(", ");
+  const failures = summary.failures.length ? `\nFailures:\n${summary.failures.map((failure) => `- ${failure.id}${failure.error ? ` — ${failure.error}` : ""}`).join("\n")}` : "";
+  const changed = summary.changed_files.length ? `\nChanged files:\n${summary.changed_files.map((file) => `- ${file}`).join("\n")}` : "";
   const outputs = Object.keys(summary.outputs).length ? `\nDeclared outputs: ${JSON.stringify(summary.outputs)}` : "";
-  const changed = summary.changed_files.length ? `\nChanged files: ${summary.changed_files.join(", ")}` : "";
-  const failures = summary.failures.length ? `\nFailures: ${summary.failures.map((failure) => `${failure.id}${failure.error ? ` — ${failure.error}` : ""}`).join("; ")}` : "";
-  return `Flow ${summary.flow}: ${summary.status}. Steps: ${steps || "none"}.${outputs}${changed}${failures}\nRun ID: ${summary.run_id}`;
+  return `Status: ${summary.status}\nFlow: ${summary.flow}${failures}${changed}${outputs}\nRun ID: ${summary.run_id}\nInspect saved run: inspect_flow_run({ run_id: ${JSON.stringify(summary.run_id)} }) (${summary.run_file})`;
 }
 
 type FlowRunResult = { content: [{ type: "text"; text: string }]; details: ReturnType<typeof summarizeRun> | { status: "failed"; error: string } };

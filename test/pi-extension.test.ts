@@ -98,7 +98,15 @@ test("run_flow uses user-only status updates and clears them without timeline up
       "  - id: report",
       "    type: exec",
       `    program: ${JSON.stringify(process.execPath)}`,
-      `    args: [\"-e\", ${JSON.stringify("console.log('done')")}]`,
+      `    args: [\"-e\", ${JSON.stringify("require('node:fs').writeFileSync('created.txt', 'created'); console.log('done')")}]`,
+    ].join("\n"));
+    await writeFile(join(cwd, "flows", "failed.flow"), [
+      "name: failed",
+      "steps:",
+      "  - id: broken",
+      "    type: exec",
+      `    program: ${JSON.stringify(process.execPath)}`,
+      `    args: [\"-e\", ${JSON.stringify("process.stderr.write('secret stderr'); process.exit(1)")}]`,
     ].join("\n"));
     const pi = fakePi();
     flowExtension(pi as any);
@@ -109,13 +117,21 @@ test("run_flow uses user-only status updates and clears them without timeline up
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/? · starting")));
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/1 · report")));
     assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
-    assert.match(result.content[0].text, /Flow live: succeeded/);
+    assert.match(result.content[0].text, /^Status: succeeded/m);
+    assert.match(result.content[0].text, /Declared outputs: \{"answer":"done\\n"\}/);
     assert.match(result.content[0].text, /Run ID: /);
-    assert.doesNotMatch(result.content[0].text, /Evidence:|inspect_flow_run/);
+    assert.match(result.content[0].text, /Inspect saved run: inspect_flow_run\(\{ run_id: ".+" \}\) \(.flow\/runs\/.+\.json\)/);
     assert.doesNotMatch(JSON.stringify(result), /stdout|stderr/);
 
-    const failed = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
-    assert.match(failed.content[0].text, /Flow failed to start/);
+    const failed = await pi.tools.get("run_flow").execute("failed", { flow: "failed" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    assert.match(failed.content[0].text, /^Status: failed/m);
+    assert.match(failed.content[0].text, /Failures:\n- broken/);
+    assert.match(failed.content[0].text, /Inspect saved run: inspect_flow_run/);
+    assert.doesNotMatch(JSON.stringify(failed), /secret stderr|stdout|stderr/);
+    assert.deepEqual(statuses.at(-1), ["flow:failed", undefined]);
+
+    const missing = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
+    assert.match(missing.content[0].text, /Flow failed to start/);
     assert.deepEqual(statuses.at(-1), ["flow:bad", undefined]);
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -183,9 +199,9 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     assert.equal(pi.entries.length, 1);
     assert.equal(pi.entries[0].type, "flow-run");
     const entry = pi.entries[0].data as any;
-    assert.match(entry.text, /Flow manual: succeeded/);
+    assert.match(entry.text, /^Status: succeeded/m);
     assert.match(entry.text, /Run ID: /);
-    assert.doesNotMatch(entry.text, /Evidence:|inspect_flow_run/);
+    assert.match(entry.text, /Inspect saved run: inspect_flow_run/);
     assert.doesNotMatch(JSON.stringify(entry), /hidden output|stdout|stderr/);
 
     const temporary = await input({ text: "$temporary" }, ctx);
