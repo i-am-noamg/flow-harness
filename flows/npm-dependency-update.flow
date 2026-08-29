@@ -1,0 +1,72 @@
+name: npm-dependency-update
+description: Update every direct npm dependency to its latest stable version, refresh the lockfile, and repair verification failures without committing.
+
+inputs:
+  include_prerelease:
+    type: boolean
+    default: false
+    description: Include prerelease versions when selecting dependency updates.
+
+outputs:
+  summary: update_summary
+  updated_dependencies: updated_dependencies
+  changed: update.changed
+  changed_files: update.changed_files
+  tests_passed: if(update.changed == false, true, test.exit_code == 0)
+  tests_status: if(update.changed == false, "skipped", test.status)
+
+steps:
+  - id: clean_tree_guard
+    type: shell
+    command: |
+      test -z "$(git status --porcelain --untracked-files=all)"
+    stopWhen: clean_tree_guard.exit_code != 0
+    stopMessage: "Working tree is not clean; commit, stash, or discard existing changes before updating dependencies."
+    console: on-failure
+
+  - id: update
+    type: agent
+    model: cheap
+    thinkingLevel: medium
+    prompt: update.md
+    inputs: [include_prerelease]
+    outputs: [update_summary, updated_dependencies]
+    outputFormat: json
+    writes: true
+    tools: [read, bash, edit, write, grep, find, ls]
+
+  - id: check_and_repair
+    type: loop
+    maxIterations: 5
+    until: lint.exit_code == 0 && test.exit_code == 0
+    when: update.changed == true
+    steps:
+      - id: lint
+        type: exec
+        program: npm
+        args: [run, lint, --if-present]
+        parallel: verification
+        console: on-failure
+      - id: test
+        type: exec
+        program: npm
+        args: [test, --if-present]
+        parallel: verification
+        console: on-failure
+      - id: workspace_state
+        type: shell
+        command: |
+          set -e
+          printf '%s\n' '--- git status --short --untracked-files=all ---'
+          git status --short --untracked-files=all
+        when: lint.exit_code != 0 || test.exit_code != 0
+      - id: repair
+        type: agent
+        model: cheap
+        thinkingLevel: medium
+        prompt: repair.md
+        context: repair
+        when: lint.exit_code != 0 || test.exit_code != 0
+        inputs: [update_summary, updated_dependencies, lint.exit_code, lint.output, test.exit_code, test.output, workspace_state.output]
+        writes: true
+        tools: [read, bash, edit, write, grep, find, ls]
