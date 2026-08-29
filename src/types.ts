@@ -154,8 +154,7 @@ export interface FlowProgressStartEvent {
   flow: string;
   total_steps: number;
 }
-export interface FlowStepProgressEvent {
-  type: "step_started" | "step_finished";
+interface FlowStepProgressEventBase {
   run_id: string;
   flow: string;
   id: string;
@@ -165,6 +164,10 @@ export interface FlowStepProgressEvent {
   loop_id?: string;
   loop_iteration?: number;
 }
+export type FlowStepProgressEvent =
+  | (FlowStepProgressEventBase & { type: "step_started" })
+  /** A bounded, display-only excerpt of final agent text; never step evidence. */
+  | (FlowStepProgressEventBase & { type: "step_finished"; agent_output?: string });
 /** Transient, payload-safe agent snapshot; usage is cumulative for this invocation, not a context snapshot. */
 export interface FlowAgentProgressEvent {
   type: "agent_progress";

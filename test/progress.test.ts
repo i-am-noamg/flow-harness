@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execute } from "../src/executor.js";
+import { emitStepProgress, execute } from "../src/executor.js";
 import type { FlowProgressEvent, Workflow } from "../src/types.js";
 
 const node = process.execPath;
@@ -16,6 +16,34 @@ test("agent progress is a transient payload-safe cumulative invocation snapshot"
   };
   assert.equal(event.type, "agent_progress");
   if (event.type === "agent_progress") assert.equal(event.usage?.totalTokens, 12);
+});
+
+test("agent finish progress exposes only an ANSI-safe bounded output excerpt", () => {
+  const events: FlowProgressEvent[] = [];
+  const run = { id: "run", workflow: "flow" } as any;
+  const started_at = "2025-01-01T00:00:00.000Z";
+  emitStepProgress((event) => events.push(event), "step_finished", run, {
+    id: "repeat[1].agent", declared_id: "agent", loop_id: "repeat", type: "agent", status: "succeeded", started_at, finished_at: "2025-01-01T00:00:01.000Z",
+    result: { output: `\u001b[31mvisible\u001b[0m${"x".repeat(2_000)}` } as any,
+  }, 1);
+  emitStepProgress((event) => events.push(event), "step_finished", run, {
+    id: "command", declared_id: "command", type: "exec", status: "succeeded", started_at, finished_at: "2025-01-01T00:00:01.000Z",
+    result: { output: "command output" } as any,
+  });
+  const agent = events[0];
+  const command = events[1];
+  assert.equal(agent.type, "step_finished");
+  if (agent.type === "step_finished") {
+    assert.equal(agent.id, "repeat[1].agent");
+    assert.equal(agent.loop_id, "repeat");
+    assert.equal(agent.loop_iteration, 1);
+    assert.match(agent.agent_output ?? "", /^visible/);
+    assert.doesNotMatch(agent.agent_output ?? "", /\u001b/);
+    assert.match(agent.agent_output ?? "", /\n\[truncated\]$/);
+    assert.equal(agent.agent_output?.length, 2_000 + "\n[truncated]".length);
+  }
+  assert.equal(command.type, "step_finished");
+  if (command.type === "step_finished") assert.equal(command.agent_output, undefined);
 });
 
 test("progress reports ordered step lifecycle events with loop qualification", async () => {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import flowExtension, { flowStatusText } from "../src/pi-extension.js";
+import flowExtension, { flowStatusText, presentAgentOutput } from "../src/pi-extension.js";
 import type { AgentUsage } from "../src/types.js";
 
 function fakePi() {
@@ -84,6 +84,19 @@ test("run_flow renders its flow and bounded inputs, with complete expanded param
   assert.match(expanded, /\n\{\n  "flow": "release",\n  "inputs": \{/);
   assert.ok(expanded.includes('"cwd": "packages/app"'));
   assert.match(expanded, /x{200}/);
+});
+
+test("agent output entries render a bounded step label without entering flow results", () => {
+  const pi = fakePi();
+  flowExtension(pi as any);
+  presentAgentOutput({ type: "step_finished", run_id: "run", flow: "flow", id: "repeat[1].report", declared_id: "report", status: "succeeded", duration_ms: 1, agent_output: "bounded agent output" }, (entry) => pi.appendEntry("flow-agent-output", entry));
+  pi.appendEntry("flow-run", { text: "Status: succeeded", details: { status: "succeeded" } });
+  assert.deepEqual(pi.entries.map((entry) => entry.type), ["flow-agent-output", "flow-run"]);
+  const theme = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text };
+  const rendered = pi.entryRenderers.get("flow-agent-output")({ data: pi.entries[0].data }, {}, theme).render(1_000).join("\n");
+  assert.match(rendered, /repeat\[1\]\.report · succeeded/);
+  assert.match(rendered, /bounded agent output/);
+  assert.doesNotMatch(JSON.stringify(pi.entries[1].data), /bounded agent output/);
 });
 
 test("run_flow uses user-only status updates and clears them without timeline updates", async () => {

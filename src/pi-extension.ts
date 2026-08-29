@@ -47,6 +47,7 @@ function summaryText(summary: ReturnType<typeof summarizeRun>): string {
 
 type FlowRunResult = { content: [{ type: "text"; text: string }]; details: ReturnType<typeof summarizeRun> | { status: "failed"; error: string } };
 type FlowEntry = { text: string; details: FlowRunResult["details"] };
+export type FlowAgentOutputEntry = { id: string; status: string; output: string };
 
 type LiveStep = { started: number; usage?: AgentUsage; turns?: number; tool_calls?: number; retries?: number };
 
@@ -81,6 +82,10 @@ function compactInputs(inputs: Record<string, unknown> | undefined, maxLength = 
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+export function presentAgentOutput(event: FlowProgressEvent, append: (entry: FlowAgentOutputEntry) => void): void {
+  if (event.type === "step_finished" && event.agent_output !== undefined) append({ id: event.id, status: event.status, output: event.agent_output });
+}
+
 export function flowStatusText(flow: string, completed: number, total: number, started: number, active: Map<string, LiveStep>, completedUsage: AgentUsage, current = Date.now()): string {
   const activeSteps = [...active.entries()];
   const labels = activeSteps.slice(0, 3).map(([id, step]) => `${id} ${elapsed(current - step.started)}${step.usage ? ` · ${usageText(step.usage)}` : ""}`);
@@ -94,7 +99,7 @@ export function flowStatusText(flow: string, completed: number, total: number, s
   return `Flow ${flow} · ${stepIndex}/${total || "?"} · ${liveDetail} · ${elapsed(current - started)} total${hasUsage ? ` · ${usageText(usage)}` : ""}`;
 }
 
-async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string): Promise<FlowRunResult> {
+async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string, onAgentOutput?: (entry: FlowAgentOutputEntry) => void): Promise<FlowRunResult> {
   const statusKey = `flow:${statusId}`;
   const started = Date.now();
   let completed = 0;
@@ -119,6 +124,7 @@ async function executeFlow(flow: string, inputs: Record<string, unknown> | undef
           const step = active.get(event.id) ?? { started: Date.now() };
           active.set(event.id, { ...step, ...(event.usage ? { usage: event.usage } : {}), turns: event.turns, tool_calls: event.tool_calls, retries: event.retries });
         } else {
+          if (onAgentOutput) presentAgentOutput(event, onAgentOutput);
           const step = active.get(event.id);
           if (step?.usage) addUsage(completedUsage, step.usage);
           active.delete(event.id);
@@ -179,6 +185,14 @@ export default function flowExtension(pi: ExtensionAPI): void {
     return box;
   });
 
+  pi.registerEntryRenderer<FlowAgentOutputEntry>("flow-agent-output", (entry, _options, theme) => {
+    const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+    const data = entry.data ?? { id: "agent", status: "unavailable", output: "Agent output unavailable" };
+    box.addChild(new Text(theme.fg("accent", `${data.id} · ${data.status}`), 0, 0));
+    box.addChild(new Text(data.output, 0, 0));
+    return box;
+  });
+
   pi.registerTool({
     name: "run_flow",
     label: "Run flow",
@@ -194,7 +208,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
     },
     async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
-      return executeFlow(params.flow, params.inputs, cwd, ctx, toolCallId);
+      return executeFlow(params.flow, params.inputs, cwd, ctx, toolCallId, (entry) => pi.appendEntry<FlowAgentOutputEntry>("flow-agent-output", entry));
     },
   });
 
@@ -291,7 +305,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
       const inputs = await collectManualInputs(workflow, ctx);
       if (!inputs) return { action: "handled" };
       const validated = resolveInputs(workflow, inputs);
-      const result = await executeFlow(flowName, validated, ctx.cwd, ctx, `manual:${flowName}`);
+      const result = await executeFlow(flowName, validated, ctx.cwd, ctx, `manual:${flowName}`, (entry) => pi.appendEntry<FlowAgentOutputEntry>("flow-agent-output", entry));
       pi.appendEntry<FlowEntry>("flow-run", { text: result.content[0].text, details: result.details });
     } catch (error) {
       ctx.ui.notify(`Flow ${flowName}: ${error instanceof Error ? error.message : String(error)}`, "error");

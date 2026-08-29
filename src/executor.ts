@@ -9,7 +9,7 @@ import { evaluateOutputExpression, OutputResolutionError } from "./outputs.js";
 import { AgentExecutionError, createAgentSession, createForkedAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
-import type { AgentStep, AgentUsage, FlowAgentProgressEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
+import type { AgentResult, AgentStep, AgentUsage, FlowAgentProgressEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
 export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; readonly workflowSource?: string; }
@@ -350,10 +350,23 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
   }
 }
 
-function emitStepProgress(onProgress: FlowProgressCallback | undefined, type: FlowStepProgressEvent["type"], run: RunState, result: StepResult, loopIteration?: number): void {
+const AGENT_PROGRESS_OUTPUT_LIMIT = 2000;
+
+export function emitStepProgress(onProgress: FlowProgressCallback | undefined, type: FlowStepProgressEvent["type"], run: RunState, result: StepResult, loopIteration?: number): void {
   if (!onProgress) return;
   const finished = result.finished_at ? Date.parse(result.finished_at) : Date.now();
-  onProgress({ type, run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, status: result.status, duration_ms: Math.max(0, finished - Date.parse(result.started_at)), ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}) });
+  const agentOutput = type === "step_finished" && result.type === "agent"
+    ? (result.result as AgentResult | undefined)?.output
+    : undefined;
+  const safeAgentOutput = typeof agentOutput === "string" && agentOutput ? stripAnsi(agentOutput) : undefined;
+  const excerpt = safeAgentOutput
+    ? safeAgentOutput.length > AGENT_PROGRESS_OUTPUT_LIMIT
+      ? `${safeAgentOutput.slice(0, AGENT_PROGRESS_OUTPUT_LIMIT)}\n[truncated]`
+      : safeAgentOutput
+    : undefined;
+  const event = { run_id: run.id, flow: run.workflow, id: result.id, declared_id: result.declared_id, status: result.status, duration_ms: Math.max(0, finished - Date.parse(result.started_at)), ...(result.loop_id ? { loop_id: result.loop_id } : {}), ...(loopIteration !== undefined ? { loop_iteration: loopIteration } : {}) };
+  if (type === "step_finished") onProgress({ type, ...event, ...(excerpt !== undefined ? { agent_output: excerpt } : {}) });
+  else onProgress({ type, ...event });
 }
 
 function emitAgentProgress(onProgress: FlowProgressCallback | undefined, run: RunState, result: StepResult, update: { usage?: AgentUsage; turns: number; tool_calls: number; retries: number }, loopIteration?: number): void {
