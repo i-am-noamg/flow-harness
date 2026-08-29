@@ -220,14 +220,30 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
   }
 });
 
-test("Flow injected guidance makes saved-run inspection conditional and rejects inference", async () => {
-  const pi = fakePi();
-  flowExtension(pi as any);
-  const handler = pi.handlers.get("before_agent_start");
-  const result = await handler({ systemPrompt: "base", systemPromptOptions: { cwd: process.cwd() } });
-  assert.match(result.systemPrompt, /inspect_flow_run only when exact implementation facts, verification evidence, failures, metrics, or optimization evidence are needed/);
-  assert.match(result.systemPrompt, /rather than invoking `flow`, `npm run dev -- run`/);
-  assert.match(result.systemPrompt, /never infer omitted details/);
-  assert.match(pi.tools.get("run_flow").description, /Prefer this tool over invoking flow or npm run dev/);
-  assert.match(pi.tools.get("inspect_flow_run").description, /dotted raw step paths/);
+test("Flow injected guidance prefers flow tools and bounds saved-run inspection", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "flow-extension-guidance-"));
+  try {
+    await mkdir(join(cwd, "flows"), { recursive: true });
+    await writeFile(join(cwd, "flows", "catalog-test.flow"), "name: catalog-test\ndescription: Catalog guidance test\nsteps: []\n");
+    const pi = fakePi();
+    flowExtension(pi as any);
+    const handler = pi.handlers.get("before_agent_start");
+    const result = await handler({ systemPrompt: "base", systemPromptOptions: { cwd } });
+    assert.match(result.systemPrompt, /Use a relevant available flow and its tools when one fits; otherwise, do the work directly/);
+    assert.match(result.systemPrompt, /Do not invoke workflow CLI wrappers through bash when the corresponding flow tool is available/);
+    assert.match(result.systemPrompt, /Available flows:/);
+    assert.match(result.systemPrompt, /- catalog-test/);
+    assert.match(result.systemPrompt, /Temporary flows live under `\.flow\/tmp\/` and must be referenced by explicit path; bare names resolve only under `flows\/`/);
+    assert.match(result.systemPrompt, /Pass only workflow-declared values to `run_flow` inputs/);
+    assert.match(result.systemPrompt, /bounded to status, declared outputs, failures, changed files, and a run ID/);
+    assert.match(result.systemPrompt, /never infer evidence it omits/);
+    assert.match(result.systemPrompt, /\.flow\/runs\/<run-id>\.json/);
+    assert.match(result.systemPrompt, /`inspect_flow_run` only when needed/);
+    assert.match(result.systemPrompt, /targeted dotted `fields`/);
+    assert.match(result.systemPrompt, /After creating or editing a flow, use `validate_flow`/);
+    assert.match(pi.tools.get("run_flow").description, /Prefer this tool over invoking flow or npm run dev/);
+    assert.match(pi.tools.get("inspect_flow_run").description, /dotted raw step paths/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
