@@ -5,7 +5,7 @@ inputs:
   msg:
     type: string
     default: ""
-    description: Commit message; if omitted, generate one from the Git status and diff.
+    description: Commit message; if omitted, generate one from the staged diff.
   push:
     type: boolean
     default: false
@@ -49,16 +49,8 @@ steps:
     stopWhen: staged_guard.exit_code == 0
     stopMessage: "Nothing to commit: no staged changes (use --add-all to stage unstaged files)"
 
-  - id: status
-    type: exec
-    parallel: commit-context
-    program: git
-    args: [status, --short]
-    when: 'msg == "" || (new_branch == true && branch == "")'
-
   - id: staged_diff
     type: exec
-    parallel: commit-context
     program: git
     args: [diff, --cached]
     console: on-failure
@@ -74,7 +66,7 @@ steps:
         model: cheap
         thinkingLevel: low
         prompt: message-only.md
-        inputs: [status.output, staged_diff.output]
+        inputs: [staged_diff.output]
         outputs: [generated_commit_message]
         outputFormat: json
       - id: branch
@@ -82,7 +74,7 @@ steps:
         model: cheap
         thinkingLevel: low
         prompt: branch-only.md
-        inputs: [status.output, staged_diff.output]
+        inputs: [staged_diff.output]
         outputs: [generated_branch]
         outputFormat: json
       - id: message_and_branch
@@ -90,7 +82,7 @@ steps:
         model: cheap
         thinkingLevel: low
         prompt: message.md
-        inputs: [status.output, staged_diff.output]
+        inputs: [staged_diff.output]
         outputs: [generated_commit_message, generated_branch]
         outputFormat: json
 
