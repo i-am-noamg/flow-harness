@@ -118,15 +118,15 @@ test("run_flow uses user-only status updates and clears them without timeline up
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/1 · report")));
     assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
     assert.match(result.content[0].text, /^Status: succeeded/m);
-    assert.match(result.content[0].text, /Declared outputs: \{"answer":"done\\n"\}/);
+    assert.match(result.content[0].text, /Declared outputs:\n\{\n  "answer": "done\\n"\n\}/);
     assert.match(result.content[0].text, /Run ID: /);
-    assert.match(result.content[0].text, /Inspect saved run: inspect_flow_run\(\{ run_id: ".+" \}\) \(.flow\/runs\/.+\.json\)/);
+    assert.doesNotMatch(result.content[0].text, /Inspect saved run/);
     assert.doesNotMatch(JSON.stringify(result), /stdout|stderr/);
 
     const failed = await pi.tools.get("run_flow").execute("failed", { flow: "failed" }, undefined, () => updates++, { cwd, ui: { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]) } });
     assert.match(failed.content[0].text, /^Status: failed/m);
     assert.match(failed.content[0].text, /Failures:\n- broken/);
-    assert.match(failed.content[0].text, /Inspect saved run: inspect_flow_run/);
+    assert.doesNotMatch(failed.content[0].text, /Inspect saved run/);
     assert.doesNotMatch(JSON.stringify(failed), /secret stderr|stdout|stderr/);
     assert.deepEqual(statuses.at(-1), ["flow:failed", undefined]);
 
@@ -201,7 +201,7 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     const entry = pi.entries[0].data as any;
     assert.match(entry.text, /^Status: succeeded/m);
     assert.match(entry.text, /Run ID: /);
-    assert.match(entry.text, /Inspect saved run: inspect_flow_run/);
+    assert.doesNotMatch(entry.text, /Inspect saved run/);
     assert.doesNotMatch(JSON.stringify(entry), /hidden output|stdout|stderr/);
 
     const temporary = await input({ text: "$temporary" }, ctx);
