@@ -1,0 +1,75 @@
+name: optimize-flow
+description: Improve a named workflow and its prompts using direct review and optional saved run evidence, then validate and repair the edited workflow.
+
+inputs:
+  flow:
+    type: string
+    description: Name of the workflow under flows/ to optimize, without the .flow suffix.
+  task:
+    type: string
+    default: ""
+    description: Optional optimization goal or constraint; preserve the workflow contract when omitted.
+  run_id:
+    type: string
+    default: ""
+    description: Optional saved run ID under .flow/runs/ to use as baseline evidence.
+
+outputs:
+  changed: optimize.changed
+  changed_files: optimize.changed_files
+  summary: optimization_summary
+  baseline: baseline_evidence
+  validation: if(optimize.changed == true, validate.status, "skipped")
+
+steps:
+  - id: workflow_source
+    type: exec
+    program: cat
+    args: ["flows/{{flow}}.flow"]
+    console: on-failure
+    outputFormat: text
+    parallel: evidence
+
+
+  - id: run_evidence
+    type: exec
+    program: cat
+    args: [".flow/runs/{{run_id}}.json"]
+    when: run_id != ""
+    console: on-failure
+    outputFormat: text
+    parallel: evidence
+
+  - id: optimize
+    type: agent
+    model: capable
+    thinkingLevel: high
+    prompt: optimize.md
+    writes: true
+    skills: [optimize-flow]
+    inputs: [flow, task, run_id, workflow_source.output, run_evidence.output]
+    outputs: [optimization_summary, baseline_evidence]
+    outputFormat: json
+
+  - id: validation_repair
+    type: loop
+    when: optimize.changed == true
+    until: validate.exit_code == 0
+    maxIterations: 3
+    steps:
+      - id: validate
+        type: exec
+        program: flow
+        args: [validate, "{{flow}}"]
+        console: on-failure
+        outputFormat: text
+
+      - id: repair
+        type: agent
+        history: true
+        model: cheap
+        thinkingLevel: low
+        prompt: repair.md
+        writes: true
+        when: validate.exit_code != 0
+        inputs: [flow, optimization_summary, validate.exit_code, validate.output, repair.history]

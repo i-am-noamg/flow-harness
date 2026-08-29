@@ -19,6 +19,16 @@ function validateTools(value: unknown, path: string): void {
   }
 }
 
+function validateSkills(value: unknown, path: string): void {
+  if (!Array.isArray(value)) throw new Error(`${path}: skills must be an array`);
+  const names = new Set<string>();
+  for (const name of value) {
+    if (typeof name !== "string" || !name.trim()) throw new Error(`${path}: skills must contain non-empty strings`);
+    if (names.has(name)) throw new Error(`${path}: duplicate skill: ${name}`);
+    names.add(name);
+  }
+}
+
 function validateModel(value: unknown, path: string): void {
   if (value === undefined || (typeof value === "string" && !value.trim())) throw new Error(`${path}: model is required`);
   if (typeof value !== "string") throw new Error(`${path}: model must be a string`);
@@ -85,7 +95,7 @@ function validateParallelBatches(steps: unknown[], path: string): void {
         if (contexts.has(step.context)) throw new Error(`${path}: parallel agents cannot share context: ${step.context}`);
         contexts.add(step.context);
       }
-      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, prompt: (step as any).prompt, variants: (step as any).variants });
+      const text = JSON.stringify({ when: step.when, inputs: step.inputs, command: (step as any).command, program: (step as any).program, args: (step as any).args, prompt: (step as any).prompt, skills: (step as any).skills, variants: (step as any).variants });
       for (const input of step.inputs ?? []) {
         const root = input.split(".")[0];
         if (ids.has(root)) throw new Error(`${step.id}: parallel step cannot depend on sibling artifact: ${root}`);
@@ -165,6 +175,7 @@ function validateAgentVariants(step: Partial<Step>): void {
     validateThinkingLevel(variant.thinkingLevel, `${step.id}.${variant.id}`);
     if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
     if (variant.tools !== undefined) validateTools(variant.tools, `${step.id}.${variant.id}`);
+    if (variant.skills !== undefined) validateSkills(variant.skills, `${step.id}.${variant.id}`);
     if (variant.context !== undefined && (typeof variant.context !== "string" || !variant.context.trim())) throw new Error(`${step.id}.${variant.id}: context must be a non-empty string`);
     if (variant.forkContext !== undefined && (typeof variant.forkContext !== "string" || !variant.forkContext.trim())) throw new Error(`${step.id}.${variant.id}: forkContext must be a non-empty string`);
     if (variant.outputFormat !== undefined && !["text", "single-line", "json"].includes(variant.outputFormat as string)) throw new Error(`${step.id}.${variant.id}: unsupported output format`);
@@ -191,6 +202,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
       validateModel(step.model, step.id);
       validateThinkingLevel(step.thinkingLevel, step.id);
       if (step.tools !== undefined) validateTools(step.tools, step.id);
+      if (step.skills !== undefined) validateSkills(step.skills, step.id);
     }
     if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);

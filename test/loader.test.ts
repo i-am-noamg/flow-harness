@@ -74,6 +74,28 @@ test("agent variant thinkingLevel rejects invalid values", () => {
   }
 });
 
+test("agent skills accepts named step and variant declarations", () => {
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "agent-skills",
+    steps: [agent({ skills: ["flow-authoring"], prompt: undefined, variants: [{ id: "variant", when: "ready == true", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", skills: ["review"] }] })],
+  }));
+});
+
+test("agent skills rejects invalid declarations on steps and variants", () => {
+  for (const [skills, message] of [
+    ["flow-authoring", "skills must be an array"],
+    [[""], "skills must contain non-empty strings"],
+    [[1], "skills must contain non-empty strings"],
+    [["review", "review"], "duplicate skill: review"],
+  ] as const) {
+    assert.throws(() => validateWorkflow({ name: "invalid-skills", steps: [agent({ skills })] }), new RegExp(`agent: ${message}`));
+    assert.throws(() => validateWorkflow({
+      name: "invalid-variant-skills",
+      steps: [agent({ prompt: undefined, variants: [{ id: "variant", when: "ready == true", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", skills }] })],
+    }), new RegExp(`agent\\.variant: ${message}`));
+  }
+});
+
 test("agent tools accepts valid and empty step and variant allowlists", () => {
   assert.doesNotThrow(() => validateWorkflow({
     name: "agent-tools",

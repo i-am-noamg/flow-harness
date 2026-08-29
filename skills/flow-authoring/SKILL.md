@@ -37,10 +37,10 @@ Apply these values to every flow design:
 2. Decide whether to create a new flow, improve or extend an existing flow, create a temporary flow, or work directly. Existing flows are user-owned and may be changed when the change improves them or adds a useful capability.
 3. Identify the workflow contract:
    - required and optional inputs, with useful defaults;
-   - public outputs callers actually need;
+   - public outputs callers actually need; do not echo direct flow inputs, because the caller already supplied them;
    - steps, dependencies, failure behavior, and side effects;
    - the explicit model and `thinkingLevel` for each agent step; both are required, with no implicit defaults. Use Pi levels `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
-   - the cheapest model/tool set that can perform each agent step; grant the smallest explicit `tools` allowlist needed and keep `writes` accurate when any allowed tool can modify the workspace. Run evidence records the declared effective allowlist separately from tools actually called.
+   - the cheapest model/tool set that can perform each agent step; grant the smallest explicit `tools` allowlist needed and keep `writes` accurate when any allowed tool can modify the workspace. When an agent must follow a local Flow skill, declare `skills: [skill-name]` rather than adding a command to read it. Run evidence records the declared effective allowlist separately from tools actually called.
 4. Write the `.flow` file under `flows/` and add or update prompt files under `prompts/` when needed. Keep temporary workflows under `.flow/tmp/`, which is ignored by Git.
 5. Keep agent boundaries narrow. Declare only the artifacts a step needs with `inputs`; do not rely on an implicit universal `task` input.
 6. Every agent step and variant must explicitly declare `model` and `thinkingLevel`; choose levels deliberately and remember Pi may clamp them to model capabilities.
@@ -54,9 +54,9 @@ Apply these values to every flow design:
 ## Design rules
 
 - Prefer deterministic `exec` or `shell` steps over agent steps whenever they can reliably perform the task; reserve agents for judgment, interpretation, or adaptation.
-- Keep prompts concise, operational, and explicit about whether the agent may modify files.
+- Keep prompts concise, operational, and explicit about whether the agent may modify files. Use an agent's `skills` declaration to require a local Flow skill; it preloads the complete skill before the prompt, unlike Pi's ordinary on-demand skill discovery.
 - Write short, specific, indicative descriptions for the workflow and its inputs: state what the flow does, when it applies, and what each input controls. Prefer one useful sentence over implementation detail or generic wording.
-- Keep complete evidence in run artifacts but expose only useful declared outputs to later steps. For compatible sequential agents, prefer retained `context` over loop `history`: context carries the full transcript and can reuse prompt caches. Use `history` only for explicit prior loop-result artifacts across fresh, incompatible, or process-step boundaries; do not duplicate it into a compatible retained session without a specific reason.
+- Keep complete evidence in run artifacts but expose only useful declared outputs to later steps. Do not expose direct flow inputs as outputs: the caller already knows the values it supplied. For compatible sequential agents, prefer retained `context` over loop `history`: context carries the full transcript and can reuse prompt caches. Use `history` only for explicit prior loop-result artifacts across fresh, incompatible, or process-step boundaries; do not duplicate it into a compatible retained session without a specific reason.
 - Make retries bounded and meaningful. A repair loop must have a concrete success condition and an iteration limit.
 - Do not hide command failures with `when`, `stopWhen`, or output formatting.
 - Respect repository values: reliability, efficiency, simplicity, and optimizability.

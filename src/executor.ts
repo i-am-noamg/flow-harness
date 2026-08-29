@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { getAgentDir, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { runExec, runShell } from "./command.js";
 import { stripAnsi } from "./ansi.js";
 import { evaluateCondition } from "./conditions.js";
@@ -309,7 +310,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     });
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
-    const agentResult = { ...r, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
+    const agentResult = { ...r, loaded_skills: renderedPrompt.loaded_skills, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
     result.result = agentResult;
     const finalStopReason = agentResult.stop_reasons.at(-1);
     if (finalStopReason === "error" || finalStopReason === "aborted") throw new Error(agentResult.error_message ?? `Agent stopped with reason: ${finalStopReason}`);
@@ -483,15 +484,26 @@ function projectArtifacts(paths: string[], artifacts: ArtifactMap): ArtifactMap 
   return projected;
 }
 
-export async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string, executionMetadata?: { readonly stepId: string; readonly workflowSource: string }): Promise<{ text: string; path: string; input_chars: Record<string, number> }> {
+export async function makePrompt(step: AgentStep, root: string, cwd: string, artifacts: ArtifactMap, workflowName: string, executionMetadata?: { readonly stepId: string; readonly workflowSource: string }): Promise<{ text: string; path: string; input_chars: Record<string, number>; loaded_skills: Array<{ name: string; path: string; content_chars: number }> }> {
   if (!step.prompt) throw new Error(`${step.id}: no prompt selected`);
   const promptPath = findPromptPath(step.prompt, root, cwd, workflowName);
   const prompt = await readFile(promptPath, "utf8");
+  const skillsDir = resolve(cwd, "skills");
+  const discoveredSkills = loadSkills({ cwd, agentDir: getAgentDir(), skillPaths: [skillsDir], includeDefaults: false }).skills;
+  const loaded = await Promise.all((step.skills ?? []).map(async (declaredName) => {
+    const name = render(declaredName, artifacts);
+    const skill = discoveredSkills.find((candidate) => candidate.name === name);
+    if (!skill) throw new Error(`${step.id}: failed to load skill ${name} from ${skillsDir}`);
+    const content = await readFile(skill.filePath, "utf8");
+    return { name: skill.name, path: skill.filePath, baseDir: skill.baseDir, content, content_chars: content.length };
+  }));
+  const loaded_skills = loaded.map(({ name, path, content_chars }) => ({ name, path, content_chars }));
+  const skills = loaded.map(({ name, path, baseDir, content }) => `\n\n<skill name="${name}" location="${path}">\nReferences are relative to ${baseDir}.\n\n${stripFrontmatter(content).trim()}\n</skill>`).join("");
   const promptArtifacts = projectArtifacts(step.inputs ?? [], artifacts);
   const availableInputs = (step.inputs ?? []).filter((key) => lookup(key, promptArtifacts) !== undefined);
   const input_chars = Object.fromEntries(availableInputs.map((key) => [key, JSON.stringify(lookup(key, promptArtifacts), null, 2).length]));
   const inputs = availableInputs.map((key) => `\n--- ${key} ---\n${JSON.stringify(lookup(key, promptArtifacts), null, 2)}`).join("\n");
   const suffix = step.outputFormat === "single-line" || step.outputFormat === "json" ? "" : "\n\nOperate in the current repository. Return a concise summary of your work and decisions.";
   const metadata = executionMetadata === undefined ? "" : `\n\n--- Read-only execution metadata ---\nCurrent agent step ID: ${executionMetadata.stepId}\nWorkflow source YAML (verbatim):\n${executionMetadata.workflowSource}\nDo not duplicate any \`exec\` or \`shell\` command declared in this workflow YAML. You may run commands needed for implementation or diagnosis when they are not declared in the workflow. Do not duplicate work assigned to other agent steps. Use available declared artifacts from prior agent steps, and leave work assigned to later agent steps for those steps. You may perform work needed for your own assignment.\n--- End read-only execution metadata ---`;
-  return { text: `${render(prompt, promptArtifacts)}${inputs}${metadata}${suffix}`, path: promptPath, input_chars };
+  return { text: `${render(prompt, promptArtifacts)}${skills}${inputs}${metadata}${suffix}`, path: promptPath, input_chars, loaded_skills };
 }

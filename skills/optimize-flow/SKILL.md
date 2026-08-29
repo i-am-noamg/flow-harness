@@ -7,7 +7,7 @@ description: Optimize a workflow, its prompts, models, and tools using run evide
 
 Optimize the whole workflow, not just its YAML. This can include prompts, model selection, tool selection, step structure, parallelism, conditions, retries, and output handling. Optimize from evidence when available, while also reviewing prompts and workflow design directly. Existing flows are user-owned and may be improved or extended when that serves their real repository workflow. Preserve the intended behavior and public contract unless the requested improvement changes them deliberately.
 
-Use a flow when work is repeatable and benefits from explicit orchestration for reliability, token-cost efficiency, or future optimization.
+Use a flow when work is repeatable and benefits from explicit orchestration for reliability, token-cost efficiency, or future optimization. When an optimization workflow agent must follow this local skill, declare `skills: [optimize-flow]`; do not add a command step that reads the skill. A repository-local optimization workflow may consume this general skill, but this skill must not require or point to that workflow.
 
 ## Process
 
@@ -62,7 +62,7 @@ Use a flow when work is repeatable and benefits from explicit orchestration for 
 
 ### Optimizability
 
-- Are outputs and failures structured enough to compare runs?
+- Are outputs and failures structured enough to compare runs, without echoing direct flow inputs the caller already knows?
 - Are durations, model information, context/tool information, and iteration counts available when Pi exposes them?
 - Does the flow preserve a clear baseline and a measurable success condition?
 

@@ -24,13 +24,14 @@ export interface AgentVariant {
   thinkingLevel: ThinkingLevel;
   writes?: boolean;
   tools?: string[];
+  skills?: string[];
   outputFormat?: StepOutputFormat;
   inputs?: string[];
   outputs?: string[];
   context?: string;
   forkContext?: string;
 }
-export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile; thinkingLevel: ThinkingLevel; prompt?: string; writes?: boolean; tools?: string[]; outputFormat?: StepOutputFormat; context?: string; forkContext?: string; variants?: AgentVariant[]; }
+export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile; thinkingLevel: ThinkingLevel; prompt?: string; writes?: boolean; tools?: string[]; skills?: string[]; outputFormat?: StepOutputFormat; context?: string; forkContext?: string; variants?: AgentVariant[]; }
 export type CommandConsole = "always" | "on-failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
@@ -111,6 +112,7 @@ export interface AgentResult {
   output_chars: number;
   prompt_path: string;
   input_chars: Record<string, number>;
+  loaded_skills?: Array<{ name: string; path: string; content_chars: number }>;
   context_id?: string;
   /** Pi-reported post-prompt session snapshot; not a cumulative run total. */
   context_usage: AgentContextUsage;

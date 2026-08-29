@@ -32,6 +32,7 @@ steps:
   prompt: prompts/inspect.md
   writes: false # true when the agent may edit files
   tools: [read, grep, find, ls] # optional allowlist: read, bash, edit, write, grep, find, ls
+  skills: [flow-authoring] # optional local named skills
   context: evidence # optional retained session name
   # forkContext: evidence # optional isolated copy of an earlier retained context
   inputs: [task, status.output]
@@ -42,6 +43,8 @@ steps:
 ```
 
 When `tools` is omitted, `writes: false` defaults to `[read, grep, find, ls]`; `writes: true` defaults to `[read, bash, edit, write, grep, find, ls]`. An explicit list, including `tools: []`, is used unchanged. Grant the smallest allowlist needed. `writes` remains the safety declaration for workspace snapshots and parallel-write restrictions; set it accurately whenever the allowlist could mutate the workspace—it is not inferred from `tools`. Variants may override their step's `tools` list.
+
+`skills` must be an array of unique, non-empty names. Flow resolves each name through Pi's loader in the run working directory's `skills/` directory, then injects the same frontmatter-stripped `<skill>` block Pi uses after an explicit skill load, in declaration order before execution. This is a Flow-required preload, not Pi's ordinary on-demand skill selection (which advertises descriptions and lets the model decide whether to load a body). An absent or unreadable skill fails the step before the agent starts. Persisted agent evidence records ordered `loaded_skills` metadata with each skill's name, resolved path, and content character count; skill bodies are not artifacts or public outputs. Variants may override their step's `skills` declaration.
 
 Use `single-line` or `text`/multi-line output for one output variable. Use `json` when producing multiple named output variables. Every agent, shell, and exec step exposes its latest canonical `step_id.output`. This is available whether or not `outputs` is declared. `outputs` adds named values alongside it; it does not replace the canonical output. Agent output is the final response text, while process output is captured stdout/stderr. Thinking, tool calls, and usage remain execution metadata rather than part of `output`.
 
@@ -98,7 +101,7 @@ Consecutive steps with the same unique, non-empty named group (for example, `par
 
 ## Outputs
 
-Each output declaration is a string using this grammar:
+Expose results the caller needs, not direct input values: the caller that ran the flow already knows what it supplied. Each output declaration is a string using this grammar:
 
 ```text
 output = value | condition | "if(" condition "," value "," value ")"

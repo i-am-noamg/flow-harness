@@ -1,0 +1,1 @@
+The target workflow failed deterministic validation. Repair only the validation error in the target `.flow` file or its flow-local prompts, using the supplied optimization summary, validation evidence, and any prior repair history. Preserve the intended optimization and public contract. Do not commit or run the target workflow. The loop validates the repair in its next iteration.

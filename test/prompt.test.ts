@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,6 +15,42 @@ steps:
     type: shell
     command: git status --short
 `;
+
+test("named local skills are injected in declaration order with evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flow-prompt-"));
+  try {
+    await writeFile(join(root, "prompt.md"), "Follow the instructions.");
+    await mkdir(join(root, "skills", "first"), { recursive: true });
+    await mkdir(join(root, "skills", "nested", "second-directory"), { recursive: true });
+    const first = "---\nname: first\ndescription: First skill.\n---\nFirst skill complete content.";
+    const second = "---\nname: second\ndescription: Second skill.\n---\nSecond skill complete content.";
+    await writeFile(join(root, "skills", "first", "SKILL.md"), first);
+    await writeFile(join(root, "skills", "nested", "second-directory", "SKILL.md"), second);
+    const prompt = await makePrompt({ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", skills: ["first", "second"] }, root, root, {}, "workflow");
+
+    const firstPath = join(root, "skills", "first", "SKILL.md");
+    const secondPath = join(root, "skills", "nested", "second-directory", "SKILL.md");
+    assert.ok(prompt.text.indexOf("First skill complete content.") < prompt.text.indexOf("Second skill complete content."));
+    assert.match(prompt.text, new RegExp(`<skill name="first" location="${firstPath}">\\nReferences are relative to ${join(root, "skills", "first")}\\.\\n\\nFirst skill complete content\\.\\n</skill>`));
+    assert.ok(!prompt.text.includes("description: First skill."));
+    assert.deepEqual(prompt.loaded_skills, [
+      { name: "first", path: firstPath, content_chars: first.length },
+      { name: "second", path: secondPath, content_chars: second.length },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("missing named local skill fails clearly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flow-prompt-"));
+  try {
+    await writeFile(join(root, "prompt.md"), "Follow the instructions.");
+    await assert.rejects(() => makePrompt({ id: "agent", type: "agent", model: "cheap", thinkingLevel: "low", prompt: "prompt.md", skills: ["missing"] }, root, root, {}, "workflow"), /agent: failed to load skill missing/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("execution metadata coordinates agent work and declared commands", async () => {
   const root = await mkdtemp(join(tmpdir(), "flow-prompt-"));
