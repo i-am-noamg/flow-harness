@@ -62,11 +62,14 @@ test("flow status renders only flow-level progress and elapsed time", () => {
 test("flow activity widget owns agent activity and omits zero metrics", () => {
   const active = new Map([
     ["inspect", { started: 1_000, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, turns: 0, tool_calls: 0 }],
-    ["test", { started: 2_000, usage: { input: 20, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.04 } }, turns: 1, tool_calls: 2, activity: { kind: "tool", preview: "read" } }],
+    ["test", { started: 2_000, usage: { input: 20, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.04 } }, turns: 1, tool_calls: 2, activity: { kind: "tool", preview: "read\n file" } }],
   ]);
   assert.deepEqual(flowActivityWidget("live", active, 4_500), [
-    "inspect · 3s\nWaiting for model response…",
-    "test · 2s · 30 tok · $0.0400 · 1 turn · 2 tools\ntool: read",
+    "Flow live",
+    "  inspect · 3s",
+    "    Waiting for model response…",
+    "  test · 2s · 30 tok · $0.0400 · 1 turn · 2 tools",
+    "    tool: read file",
   ]);
 });
 
@@ -123,9 +126,9 @@ test("run_flow uses user-only status updates and clears them without timeline up
     assert.equal(updates, 0);
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/? · 0s total")));
     assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/1")));
-    assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
-    assert.ok(widgets.some(([key, value]) => key === "flow-activity:call" && value?.[0].includes("Flow live")));
-    assert.deepEqual(widgets.at(-1), ["flow-activity:call", undefined]);
+    assert.deepEqual(statuses.at(-1), ["flow:tool:call:1", undefined]);
+    assert.ok(widgets.some(([key, value]) => key === "flow-activity:tool:call:1" && value?.[0].includes("Flow live")));
+    assert.deepEqual(widgets.at(-1), ["flow-activity:tool:call:1", undefined]);
     assert.match(result.content[0].text, /^Status: succeeded/m);
     assert.match(result.content[0].text, /Declared outputs:\n\{\n  "answer": "done\\n"\n\}/);
     assert.match(result.content[0].text, /Run ID: /);
@@ -137,11 +140,52 @@ test("run_flow uses user-only status updates and clears them without timeline up
     assert.match(failed.content[0].text, /Failures:\n- broken/);
     assert.doesNotMatch(failed.content[0].text, /Inspect saved run/);
     assert.doesNotMatch(JSON.stringify(failed), /secret stderr|stdout|stderr/);
-    assert.deepEqual(statuses.at(-1), ["flow:failed", undefined]);
+    assert.deepEqual(statuses.at(-1), ["flow:tool:failed:2", undefined]);
 
     const missing = await pi.tools.get("run_flow").execute("bad", { flow: "missing" }, undefined, () => updates++, { cwd, ui });
     assert.match(missing.content[0].text, /Flow failed to start/);
-    assert.deepEqual(statuses.at(-1), ["flow:bad", undefined]);
+    assert.deepEqual(statuses.at(-1), ["flow:tool:bad:3", undefined]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("concurrent tool and manual flow runs use independent display keys", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "flow-extension-concurrent-"));
+  try {
+    await mkdir(join(cwd, "flows"), { recursive: true });
+    await writeFile(join(cwd, "flows", "slow.flow"), [
+      "name: slow",
+      "steps:",
+      "  - id: wait",
+      "    type: exec",
+      `    program: ${JSON.stringify(process.execPath)}`,
+      `    args: ["-e", ${JSON.stringify("setTimeout(() => {}, 50)")}]`,
+    ].join("\n"));
+    const pi = fakePi();
+    flowExtension(pi as any);
+    const statuses: Array<[string, string | undefined]> = [];
+    const widgets: Array<[string, string[] | undefined]> = [];
+    const ui = {
+      setStatus: (key: string, value: string | undefined) => statuses.push([key, value]),
+      setWidget: (key: string, value: string[] | undefined) => widgets.push([key, value]),
+    };
+    const ctx = { cwd, mode: "tui", ui };
+    await Promise.all([
+      pi.tools.get("run_flow").execute("same-call", { flow: "slow" }, undefined, undefined, ctx),
+      pi.tools.get("run_flow").execute("same-call", { flow: "slow" }, undefined, undefined, ctx),
+      pi.handlers.get("input")({ text: "$slow" }, ctx),
+      pi.handlers.get("input")({ text: "$slow" }, ctx),
+    ]);
+
+    const statusKeys = statuses.filter(([, value]) => value !== undefined).map(([key]) => key);
+    const clearedStatusKeys = statuses.filter(([, value]) => value === undefined).map(([key]) => key);
+    const widgetKeys = widgets.filter(([, value]) => value !== undefined).map(([key]) => key);
+    const clearedWidgetKeys = widgets.filter(([, value]) => value === undefined).map(([key]) => key);
+    assert.equal(new Set(statusKeys).size, 4);
+    assert.deepEqual(new Set(clearedStatusKeys), new Set(statusKeys));
+    assert.equal(new Set(widgetKeys).size, 4);
+    assert.deepEqual(new Set(clearedWidgetKeys), new Set(widgetKeys));
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -205,7 +249,7 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     assert.equal(prompts.length, 3);
     assert.deepEqual(notices, ["required is required."]);
     assert.ok(statuses.some(([, value]) => value?.includes("Flow manual · 0/1")));
-    assert.deepEqual(statuses.at(-1), ["flow:manual:manual", undefined]);
+    assert.deepEqual(statuses.at(-1), ["flow:manual:manual:1", undefined]);
     assert.equal(pi.entries.length, 1);
     assert.equal(pi.entries[0].type, "flow-run");
     const entry = pi.entries[0].data as any;

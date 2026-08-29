@@ -73,13 +73,15 @@ export function flowStatusText(flow: string, completed: number, total: number, s
 }
 
 export function flowActivityWidget(flow: string, active: Map<string, LiveStep>, current = Date.now()): string[] {
+  const line = (text: string) => text.replace(/\s+/g, " ").trim();
+  const header = `Flow ${line(flow)}`;
   const steps = [...active.entries()];
-  if (!steps.length) return [`Flow ${flow}`, "Starting nested agent activity…"];
-  return steps.slice(0, 3).map(([id, step]) => {
+  if (!steps.length) return [header, "  Starting nested agent activity…"];
+  return [header, ...steps.slice(0, 3).flatMap(([id, step]) => {
     const progress = [hasUsage(step.usage) ? usageText(step.usage) : undefined, step.turns ? `${step.turns} turn${step.turns === 1 ? "" : "s"}` : undefined, step.tool_calls ? `${step.tool_calls} tool${step.tool_calls === 1 ? "" : "s"}` : undefined].filter(Boolean).join(" · ");
-    const latest = step.activity ? `${step.activity.kind}: ${step.activity.preview}` : "Waiting for model response…";
-    return `${id} · ${elapsed(current - step.started)}${progress ? ` · ${progress}` : ""}\n${latest}`;
-  });
+    const latest = line(step.activity ? `${step.activity.kind}: ${step.activity.preview}` : "Waiting for model response…");
+    return [`  ${line(id)} · ${elapsed(current - step.started)}${progress ? ` · ${progress}` : ""}`, `    ${latest}`];
+  })];
 }
 
 async function executeFlow(flow: string, inputs: Record<string, unknown> | undefined, cwd: string, ctx: Pick<ExtensionContext, "ui">, statusId: string): Promise<FlowRunResult> {
@@ -167,6 +169,9 @@ async function collectManualInputs(flow: Awaited<ReturnType<typeof loadFlow>>["w
 }
 
 export default function flowExtension(pi: ExtensionAPI): void {
+  let displaySequence = 0;
+  const nextDisplayId = (source: string) => `${source}:${++displaySequence}`;
+
   pi.on("before_agent_start", async (event) => {
     const catalog = await listFlows(event.systemPromptOptions.cwd);
     return { systemPrompt: `${event.systemPrompt}\n\nFlow coordination:\nUse a relevant available flow and its tools when one fits; otherwise, do the work directly. Do not invoke workflow CLI wrappers through bash when the corresponding flow tool is available.\n\nAvailable flows:\n${formatFlowCatalog(catalog)}\n\nTemporary flows live under \`.flow/tmp/\` and must be referenced by explicit path; bare names resolve only under \`flows/\`.\n\nPass only workflow-declared values to \`run_flow\` inputs. Its result is bounded to status, declared outputs, failures, changed files, and a run ID; never infer evidence it omits. Exact evidence is saved in \`.flow/runs/<run-id>.json\`: use \`inspect_flow_run\` only when needed, and request targeted dotted \`fields\` to keep context bounded.\n\nAfter creating or editing a flow, use \`validate_flow\`. Before a flow performs commits, pushes, destructive changes, deployments, or other irreversible actions, ask for approval unless the user explicitly requested it; ask when the intended flow or change is unclear.` };
@@ -195,7 +200,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
     },
     async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = params.cwd ? resolve(ctx.cwd, params.cwd) : ctx.cwd;
-      return executeFlow(params.flow, params.inputs, cwd, ctx, toolCallId);
+      return executeFlow(params.flow, params.inputs, cwd, ctx, nextDisplayId(`tool:${toolCallId}`));
     },
   });
 
@@ -292,7 +297,7 @@ export default function flowExtension(pi: ExtensionAPI): void {
       const inputs = await collectManualInputs(workflow, ctx);
       if (!inputs) return { action: "handled" };
       const validated = resolveInputs(workflow, inputs);
-      const result = await executeFlow(flowName, validated, ctx.cwd, ctx, `manual:${flowName}`);
+      const result = await executeFlow(flowName, validated, ctx.cwd, ctx, nextDisplayId(`manual:${flowName}`));
       pi.appendEntry<FlowEntry>("flow-run", { text: result.content[0].text, details: result.details });
     } catch (error) {
       ctx.ui.notify(`Flow ${flowName}: ${error instanceof Error ? error.message : String(error)}`, "error");
