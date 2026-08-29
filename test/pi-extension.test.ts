@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import flowExtension, { flowStatusText } from "../src/pi-extension.js";
-import type { AgentUsage } from "../src/types.js";
+import flowExtension, { flowActivityWidget, flowStatusText } from "../src/pi-extension.js";
 
 function fakePi() {
   const tools = new Map<string, any>();
@@ -55,14 +54,20 @@ test("inspect_flow_run selects raw nested agent evidence while default inspectio
   }
 });
 
-test("flow status renders active plural elapsed time and only reported cumulative usage", () => {
-  const completed: AgentUsage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.03 } };
+test("flow status renders only flow-level progress and elapsed time", () => {
+  assert.equal(flowStatusText("live", 1, 3, 0, 4_500), "Flow live · 1/3 · 4s total");
+  assert.equal(flowStatusText("live", 0, 0, 0, 999), "Flow live · 0/? · 0s total");
+});
+
+test("flow activity widget owns agent activity and omits zero metrics", () => {
   const active = new Map([
-    ["inspect", { started: 1_000, usage: { input: 20, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.04 } } }],
-    ["test", { started: 2_000 }],
+    ["inspect", { started: 1_000, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, turns: 0, tool_calls: 0 }],
+    ["test", { started: 2_000, usage: { input: 20, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0.02, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.04 } }, turns: 1, tool_calls: 2, activity: { kind: "tool", preview: "read" } }],
   ]);
-  assert.equal(flowStatusText("live", 1, 3, 0, active, completed, 4_500), "Flow live · 2/3 · active inspect 3s · 30 tok · $0.0400, test 2s · 4s total · 45 tok · $0.0700");
-  assert.doesNotMatch(flowStatusText("live", 0, 1, 0, new Map([["wait", { started: 0 }]]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, 999), /tok|\$/);
+  assert.deepEqual(flowActivityWidget("live", active, 4_500), [
+    "inspect · 3s\nWaiting for model response…",
+    "test · 2s · 30 tok · $0.0400 · 1 turn · 2 tools\ntool: read",
+  ]);
 });
 
 test("run_flow renders its flow and bounded inputs, with complete expanded parameters", () => {
@@ -116,8 +121,8 @@ test("run_flow uses user-only status updates and clears them without timeline up
     const ui = { setStatus: (key: string, value: string | undefined) => statuses.push([key, value]), setWidget: (key: string, value: string[] | undefined) => widgets.push([key, value]) };
     const result = await pi.tools.get("run_flow").execute("call", { flow: "live" }, undefined, () => updates++, { cwd, ui });
     assert.equal(updates, 0);
-    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/? · starting")));
-    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 1/1 · report")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/? · 0s total")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow live · 0/1")));
     assert.deepEqual(statuses.at(-1), ["flow:call", undefined]);
     assert.ok(widgets.some(([key, value]) => key === "flow-activity:call" && value?.[0].includes("Flow live")));
     assert.deepEqual(widgets.at(-1), ["flow-activity:call", undefined]);
@@ -199,7 +204,7 @@ test("$flow-name discovers permanent flows, collects validated inputs, and displ
     assert.deepEqual(handled, { action: "handled" });
     assert.equal(prompts.length, 3);
     assert.deepEqual(notices, ["required is required."]);
-    assert.ok(statuses.some(([, value]) => value?.includes("Flow manual · 1/1 · report")));
+    assert.ok(statuses.some(([, value]) => value?.includes("Flow manual · 0/1")));
     assert.deepEqual(statuses.at(-1), ["flow:manual:manual", undefined]);
     assert.equal(pi.entries.length, 1);
     assert.equal(pi.entries[0].type, "flow-run");

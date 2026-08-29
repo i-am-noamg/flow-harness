@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path";
 import YAML from "yaml";
 import { validateCondition as validateConditionSyntax } from "./conditions.js";
 import { parseOutputExpression } from "./outputs.js";
-import type { Workflow, WorkflowInput, Step } from "./types.js";
+import type { AgentStep, Workflow, WorkflowInput, Step } from "./types.js";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const PI_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
@@ -39,6 +39,10 @@ function validateThinkingLevel(value: unknown, path: string): void {
   if (typeof value !== "string" || !THINKING_LEVELS.includes(value as typeof THINKING_LEVELS[number])) {
     throw new Error(`${path}: thinkingLevel must be one of ${THINKING_LEVELS.join(", ")}`);
   }
+}
+
+function validatePrompt(value: unknown, path: string): void {
+  if (typeof value !== "string" || !value) throw new Error(`${path}: agent requires prompt or variants`);
 }
 
 export async function loadWorkflow(file: string): Promise<{ workflow: Workflow; root: string; workflowSource: string }> {
@@ -131,7 +135,7 @@ function validateAgentContexts(steps: Step[]): void {
       if (step.type !== "agent") continue;
       const candidates = step.variants?.length ? step.variants.map((variant) => ({ ...step, ...variant })) : [step];
       for (const candidate of candidates) {
-        const config: AgentContextConfig = { id: step.id, context: candidate.context, forkContext: candidate.forkContext, model: candidate.model, writes: candidate.writes ?? false, thinkingLevel: candidate.thinkingLevel, tools: effectiveTools(candidate.tools, candidate.writes ?? false), parallelBatch };
+        const config: AgentContextConfig = { id: step.id, context: candidate.context, forkContext: candidate.forkContext, model: candidate.model!, writes: candidate.writes ?? false, thinkingLevel: candidate.thinkingLevel!, tools: effectiveTools(candidate.tools, candidate.writes ?? false), parallelBatch };
         if (config.context && config.forkContext) throw new Error(`${step.id}: context and forkContext cannot both be set`);
         if (config.forkContext) {
           const source = contexts.get(config.forkContext);
@@ -158,7 +162,7 @@ function validateConditionField(expression: string, id: string, field: string): 
   }
 }
 
-function validateAgentVariants(step: Partial<Step>): void {
+function validateAgentVariants(step: AgentStep): void {
   const variants = (step as any).variants as unknown;
   if (!Array.isArray(variants) || variants.length === 0) throw new Error(`${step.id}: variants must be a non-empty array`);
   const ids = new Set<string>();
@@ -170,9 +174,9 @@ function validateAgentVariants(step: Partial<Step>): void {
     ids.add(variant.id);
     if (typeof variant.when !== "string" || !variant.when.trim()) throw new Error(`${step.id}.${variant.id}: variant requires when`);
     validateConditionField(variant.when, `${step.id}.${variant.id}`, "when");
-    if (typeof variant.prompt !== "string" || !variant.prompt) throw new Error(`${step.id}.${variant.id}: variant requires prompt`);
-    validateModel(variant.model, `${step.id}.${variant.id}`);
-    validateThinkingLevel(variant.thinkingLevel, `${step.id}.${variant.id}`);
+    validatePrompt(variant.prompt ?? step.prompt, `${step.id}.${variant.id}`);
+    validateModel(variant.model ?? step.model, `${step.id}.${variant.id}`);
+    validateThinkingLevel(variant.thinkingLevel ?? step.thinkingLevel, `${step.id}.${variant.id}`);
     if (variant.writes !== undefined && typeof variant.writes !== "boolean") throw new Error(`${step.id}.${variant.id}: writes must be a boolean`);
     if (variant.tools !== undefined) validateTools(variant.tools, `${step.id}.${variant.id}`);
     if (variant.skills !== undefined) validateSkills(variant.skills, `${step.id}.${variant.id}`);
@@ -199,12 +203,18 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.type === "agent" && step.context !== undefined && (typeof step.context !== "string" || !step.context.trim())) throw new Error(`${step.id}: context must be a non-empty string`);
     if (step.type === "agent" && step.forkContext !== undefined && (typeof step.forkContext !== "string" || !step.forkContext.trim())) throw new Error(`${step.id}: forkContext must be a non-empty string`);
     if (step.type === "agent") {
-      validateModel(step.model, step.id);
-      validateThinkingLevel(step.thinkingLevel, step.id);
+      if (step.variants === undefined) {
+        validateModel(step.model, step.id);
+        validateThinkingLevel(step.thinkingLevel, step.id);
+      } else {
+        if (step.model !== undefined) validateModel(step.model, step.id);
+        if (step.thinkingLevel !== undefined) validateThinkingLevel(step.thinkingLevel, step.id);
+        if (step.prompt !== undefined) validatePrompt(step.prompt, step.id);
+      }
       if (step.tools !== undefined) validateTools(step.tools, step.id);
       if (step.skills !== undefined) validateSkills(step.skills, step.id);
     }
-    if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step);
+    if (step.type === "agent" && step.variants !== undefined) validateAgentVariants(step as AgentStep);
     if (step.stopWhen !== undefined && typeof step.stopWhen !== "string") throw new Error(`${step.id}: stopWhen must be a string`);
     if (step.stopWhen !== undefined) validateConditionField(step.stopWhen, step.id, "stopWhen");
     if (step.stopMessage !== undefined && typeof step.stopMessage !== "string") throw new Error(`${step.id}: stopMessage must be a string`);
@@ -216,8 +226,7 @@ function validateSteps(steps: unknown, ids: Set<string>, path: string, allowHist
     if (step.parallel && step.type === "shell") throw new Error(`${step.id}: shell steps cannot run in parallel`);
     if (step.parallel && step.type === "agent" && step.writes) throw new Error(`${step.id}: writing agents cannot run in parallel`);
     if (step.parallel && step.stopWhen) throw new Error(`${step.id}: stopWhen steps cannot run in parallel`);
-    if (step.type === "agent" && step.variants === undefined && (typeof step.prompt !== "string" || !step.prompt)) throw new Error(`${step.id}: agent requires prompt or variants`);
-    if (step.type === "agent" && step.variants !== undefined && step.prompt !== undefined && (typeof step.prompt !== "string" || !step.prompt)) throw new Error(`${step.id}: agent prompt must be a non-empty string`);
+    if (step.type === "agent" && step.variants === undefined) validatePrompt(step.prompt, step.id);
     if (step.type === "agent" && step.outputFormat !== undefined && !["text", "single-line", "json"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported agent output format`);
     if ((step.type === "shell" || step.type === "exec") && step.outputFormat !== undefined && !["text", "single-line", "lines"].includes(step.outputFormat)) throw new Error(`${step.id}: unsupported process output format`);
     if (step.type === "shell" && typeof step.command !== "string" || step.type === "shell" && !step.command) throw new Error(`${step.id}: shell requires command`);

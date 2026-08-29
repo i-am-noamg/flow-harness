@@ -43,7 +43,7 @@ Apply these values to every flow design:
    - the cheapest model/tool set that can perform each agent step; grant the smallest explicit `tools` allowlist needed and keep `writes` accurate when any allowed tool can modify the workspace. When an agent must follow a local Flow skill, declare `skills: [skill-name]` rather than adding a command to read it. Run evidence records the declared effective allowlist separately from tools actually called.
 4. Write the `.flow` file under `flows/` and add or update prompt files under `prompts/` when needed. Keep temporary workflows under `.flow/tmp/`, which is ignored by Git.
 5. Keep agent boundaries narrow. Declare only the artifacts a step needs with `inputs`; do not rely on an implicit universal `task` input.
-6. Every agent step and variant must explicitly declare `model` and `thinkingLevel`; choose levels deliberately and remember Pi may clamp them to model capabilities.
+6. Every selected agent must have effective `model`, `thinkingLevel`, and `prompt` declarations. Variants may inherit common values from their parent, but must provide any field the parent omits; choose levels deliberately and remember Pi may clamp them to model capabilities.
 7. Choose output formats deliberately:
    - one output variable: use `single-line` for a scalar line or `text` for prose/multi-line text;
    - multiple named output variables: use `json` and declare the field names in `outputs`;

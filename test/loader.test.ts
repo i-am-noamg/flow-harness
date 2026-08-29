@@ -18,8 +18,7 @@ test("agent thinkingLevel accepts all Pi levels on steps and variants", () => {
     assert.doesNotThrow(() => validateWorkflow({
       name: "variant-thinking-levels",
       steps: [agent({
-        prompt: undefined,
-        variants: [{ id: "variant", when: "ready == true", model: "cheap", thinkingLevel, prompt: "prompt.md" }],
+        variants: [{ id: "variant", when: "ready == true", thinkingLevel }],
       })],
     }));
   }
@@ -36,21 +35,25 @@ test("agent model and thinkingLevel are required on steps", () => {
   }), /agent: thinkingLevel is required/);
 });
 
-test("agent variant model and thinkingLevel are required", () => {
-  assert.throws(() => validateWorkflow({
-    name: "missing-variant-model",
-    steps: [agent({
-      prompt: undefined,
-      variants: [{ id: "variant", when: "ready == true", thinkingLevel: "low", prompt: "prompt.md" }],
-    })],
-  }), /agent\.variant: model is required/);
-  assert.throws(() => validateWorkflow({
-    name: "missing-variant-thinking-level",
-    steps: [agent({
-      prompt: undefined,
-      variants: [{ id: "variant", when: "ready == true", model: "cheap", prompt: "prompt.md" }],
-    })],
-  }), /agent\.variant: thinkingLevel is required/);
+test("agent variants inherit parent fields and allow explicit overrides", () => {
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "inherited-variant-fields",
+    steps: [agent({ variants: [{ id: "inherited", when: "ready == true" }] })],
+  }));
+  assert.doesNotThrow(() => validateWorkflow({
+    name: "overridden-variant-fields",
+    steps: [agent({ variants: [{ id: "overridden", when: "ready == true", model: "capable", thinkingLevel: "high", prompt: "other.md" }] })],
+  }));
+  for (const [field, value, message] of [
+    ["model", undefined, /agent\.variant: model is required/],
+    ["thinkingLevel", undefined, /agent\.variant: thinkingLevel is required/],
+    ["prompt", undefined, /agent\.variant: agent requires prompt or variants/],
+  ] as const) {
+    assert.throws(() => validateWorkflow({
+      name: `missing-${field}`,
+      steps: [agent({ [field]: value, variants: [{ id: "variant", when: "ready == true" }] })],
+    }), message);
+  }
 });
 
 test("agent thinkingLevel rejects invalid step values", () => {
@@ -62,16 +65,16 @@ test("agent thinkingLevel rejects invalid step values", () => {
   }
 });
 
-test("agent variant thinkingLevel rejects invalid values", () => {
+test("agent variant thinkingLevel rejects invalid parent and variant values", () => {
   for (const thinkingLevel of ["default", 1, false]) {
-    assert.throws(() => validateWorkflow({
-      name: "invalid-variant-thinking-level",
-      steps: [agent({
-        prompt: undefined,
-        variants: [{ id: "variant", when: "ready == true", model: "cheap", thinkingLevel, prompt: "prompt.md" }],
-      })],
-    }), /agent\.variant: thinkingLevel must be one of/);
+    assert.throws(() => validateWorkflow({ name: "invalid-parent-thinking-level", steps: [agent({ thinkingLevel, variants: [{ id: "variant", when: "ready == true" }] })] }), /agent: thinkingLevel must be one of/);
+    assert.throws(() => validateWorkflow({ name: "invalid-variant-thinking-level", steps: [agent({ variants: [{ id: "variant", when: "ready == true", thinkingLevel }] })] }), /agent\.variant: thinkingLevel must be one of/);
   }
+});
+
+test("agent variants reject invalid explicit parent and variant models", () => {
+  assert.throws(() => validateWorkflow({ name: "invalid-parent-model", steps: [agent({ model: "", variants: [{ id: "variant", when: "ready == true" }] })] }), /agent: model is required/);
+  assert.throws(() => validateWorkflow({ name: "invalid-variant-model", steps: [agent({ variants: [{ id: "variant", when: "ready == true", model: "" }] })] }), /agent\.variant: model is required/);
 });
 
 test("agent skills accepts named step and variant declarations", () => {

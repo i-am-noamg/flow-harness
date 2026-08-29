@@ -50,30 +50,17 @@ type FlowEntry = { text: string; details: FlowRunResult["details"] };
 type LiveStep = { started: number; usage?: AgentUsage; turns?: number; tool_calls?: number; retries?: number; activity?: FlowLiveActivityEvent };
 const ACTIVITY_WIDGET_INTERVAL_MS = 250;
 
-function addUsage(total: AgentUsage, usage: AgentUsage | undefined): void {
-  if (!usage) return;
-  total.input += usage.input;
-  total.output += usage.output;
-  total.cacheRead += usage.cacheRead;
-  total.cacheWrite += usage.cacheWrite;
-  total.totalTokens += usage.totalTokens;
-  if (usage.cost) {
-    total.cost ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-    total.cost.input += usage.cost.input;
-    total.cost.output += usage.cost.output;
-    total.cost.cacheRead += usage.cost.cacheRead;
-    total.cost.cacheWrite += usage.cost.cacheWrite;
-    total.cost.total += usage.cost.total;
-  }
-}
-
 function elapsed(ms: number): string {
   return `${Math.max(0, Math.floor(ms / 1000))}s`;
 }
 
+function hasUsage(usage: AgentUsage | undefined): usage is AgentUsage {
+  return (usage?.totalTokens ?? 0) > 0 || (usage?.cost?.total ?? 0) > 0;
+}
+
 function usageText(usage: AgentUsage): string {
   const tokens = usage.totalTokens >= 1000 ? `${(usage.totalTokens / 1000).toFixed(1)}k` : String(usage.totalTokens);
-  return `${tokens} tok${usage.cost ? ` · $${usage.cost.total.toFixed(4)}` : ""}`;
+  return `${tokens} tok${usage.cost && usage.cost.total > 0 ? ` · $${usage.cost.total.toFixed(4)}` : ""}`;
 }
 
 function compactInputs(inputs: Record<string, unknown> | undefined, maxLength = 120): string {
@@ -81,25 +68,16 @@ function compactInputs(inputs: Record<string, unknown> | undefined, maxLength = 
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
-export function flowStatusText(flow: string, completed: number, total: number, started: number, active: Map<string, LiveStep>, completedUsage: AgentUsage, current = Date.now()): string {
-  const activeSteps = [...active.entries()];
-  const labels = activeSteps.slice(0, 3).map(([id, step]) => `${id} ${elapsed(current - step.started)}${step.usage ? ` · ${usageText(step.usage)}` : ""}`);
-  const extra = activeSteps.length > 3 ? ` +${activeSteps.length - 3}` : "";
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } as AgentUsage;
-  addUsage(usage, completedUsage);
-  for (const [, step] of activeSteps) addUsage(usage, step.usage);
-  const hasUsage = usage.totalTokens > 0 || usage.cost !== undefined;
-  const liveDetail = activeSteps.length ? `${activeSteps.length > 1 ? "active " : ""}${labels.join(", ")}${extra}` : "starting";
-  const stepIndex = total ? Math.min(completed + 1, total) : completed + 1;
-  return `Flow ${flow} · ${stepIndex}/${total || "?"} · ${liveDetail} · ${elapsed(current - started)} total${hasUsage ? ` · ${usageText(usage)}` : ""}`;
+export function flowStatusText(flow: string, completed: number, total: number, started: number, current = Date.now()): string {
+  return `Flow ${flow} · ${completed}/${total || "?"} · ${elapsed(current - started)} total`;
 }
 
 export function flowActivityWidget(flow: string, active: Map<string, LiveStep>, current = Date.now()): string[] {
   const steps = [...active.entries()];
   if (!steps.length) return [`Flow ${flow}`, "Starting nested agent activity…"];
   return steps.slice(0, 3).map(([id, step]) => {
-    const progress = [step.usage ? usageText(step.usage) : undefined, step.turns !== undefined ? `${step.turns} turn${step.turns === 1 ? "" : "s"}` : undefined, step.tool_calls !== undefined ? `${step.tool_calls} tool${step.tool_calls === 1 ? "" : "s"}` : undefined].filter(Boolean).join(" · ");
-    const latest = step.activity ? `${step.activity.kind}: ${step.activity.preview}` : "waiting for activity…";
+    const progress = [hasUsage(step.usage) ? usageText(step.usage) : undefined, step.turns ? `${step.turns} turn${step.turns === 1 ? "" : "s"}` : undefined, step.tool_calls ? `${step.tool_calls} tool${step.tool_calls === 1 ? "" : "s"}` : undefined].filter(Boolean).join(" · ");
+    const latest = step.activity ? `${step.activity.kind}: ${step.activity.preview}` : "Waiting for model response…";
     return `${id} · ${elapsed(current - step.started)}${progress ? ` · ${progress}` : ""}\n${latest}`;
   });
 }
@@ -111,9 +89,8 @@ async function executeFlow(flow: string, inputs: Record<string, unknown> | undef
   let completed = 0;
   let total = 0;
   const active = new Map<string, LiveStep>();
-  const completedUsage: AgentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
   let lastWidgetUpdate = 0;
-  const setStatus = () => ctx.ui.setStatus(statusKey, flowStatusText(flow, completed, total, started, active, completedUsage));
+  const setStatus = () => ctx.ui.setStatus(statusKey, flowStatusText(flow, completed, total, started));
   const setWidget = (force = false) => {
     const now = Date.now();
     if (force || now - lastWidgetUpdate >= ACTIVITY_WIDGET_INTERVAL_MS) {
@@ -139,8 +116,6 @@ async function executeFlow(flow: string, inputs: Record<string, unknown> | undef
           const step = active.get(event.id) ?? { started: Date.now() };
           active.set(event.id, { ...step, ...(event.usage ? { usage: event.usage } : {}), turns: event.turns, tool_calls: event.tool_calls, retries: event.retries });
         } else {
-          const step = active.get(event.id);
-          if (step?.usage) addUsage(completedUsage, step.usage);
           active.delete(event.id);
           if (!event.loop_id) completed++;
         }

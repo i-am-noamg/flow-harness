@@ -19,9 +19,9 @@ export type StepOutputFormat = "text" | "single-line" | "lines" | "json";
 export interface AgentVariant {
   id: string;
   when: string;
-  prompt: string;
-  model: ModelProfile;
-  thinkingLevel: ThinkingLevel;
+  prompt?: string;
+  model?: ModelProfile;
+  thinkingLevel?: ThinkingLevel;
   writes?: boolean;
   tools?: string[];
   skills?: string[];
@@ -31,7 +31,9 @@ export interface AgentVariant {
   context?: string;
   forkContext?: string;
 }
-export interface AgentStep extends StepBase { type: "agent"; model: ModelProfile; thinkingLevel: ThinkingLevel; prompt?: string; writes?: boolean; tools?: string[]; skills?: string[]; outputFormat?: StepOutputFormat; context?: string; forkContext?: string; variants?: AgentVariant[]; }
+export interface AgentStep extends StepBase { type: "agent"; model?: ModelProfile; thinkingLevel?: ThinkingLevel; prompt?: string; writes?: boolean; tools?: string[]; skills?: string[]; outputFormat?: StepOutputFormat; context?: string; forkContext?: string; variants?: AgentVariant[]; }
+/** An agent step after variant inheritance and validation, ready for execution. */
+export interface ResolvedAgentStep extends AgentStep { model: ModelProfile; thinkingLevel: ThinkingLevel; prompt: string; }
 export type CommandConsole = "always" | "on-failure" | "never";
 export interface ShellStep extends StepBase { type: "shell"; command: string; shell?: string; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }
 export interface ExecStep extends StepBase { type: "exec"; program: string; args?: string[]; cwd?: string; timeout?: number; console?: CommandConsole; outputFormat?: Exclude<StepOutputFormat, "json">; }

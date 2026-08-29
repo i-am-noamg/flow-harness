@@ -13,6 +13,10 @@ inputs:
     type: string
     default: ""
     description: Optional saved run ID under .flow/runs/ to use as baseline evidence.
+  readonly:
+    type: boolean
+    default: false
+    description: Suggest optimizations without modifying the target workflow or its prompts.
 
 outputs:
   changed: optimize.changed
@@ -56,11 +60,19 @@ steps:
     model: capable
     thinkingLevel: high
     prompt: optimize.md
-    writes: true
     skills: [optimize-flow]
-    inputs: [flow, task, run_id, workflow_source.output, run_summary.output]
+    inputs: [flow, task, run_id, readonly, workflow_source.output, run_summary.output]
     outputs: [optimization_summary, baseline_evidence]
     outputFormat: json
+    variants:
+      - id: apply
+        when: readonly == false
+        writes: true
+        tools: [read, bash, edit, write, grep, find, ls]
+      - id: suggest
+        when: readonly == true
+        writes: false
+        tools: [read, grep, find, ls]
 
   - id: validation_repair
     type: loop

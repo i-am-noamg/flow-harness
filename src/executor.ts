@@ -9,7 +9,7 @@ import { evaluateOutputExpression, OutputResolutionError } from "./outputs.js";
 import { AgentExecutionError, createAgentSession, createForkedAgentSession, resolveEffectiveTools, runAgent, type AgentSessionHandle } from "./pi-agent.js";
 import { changedFiles, snapshotWorkspace, workspaceChanged } from "./workspace.js";
 import { RunStore, makeRunId, type RunStoreLike } from "./artifacts.js";
-import type { AgentStep, AgentUsage, FlowAgentProgressEvent, FlowLiveActivityCallback, FlowLiveActivityEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, RunState, Step, StepResult, Workflow } from "./types.js";
+import type { AgentStep, AgentUsage, FlowAgentProgressEvent, FlowLiveActivityCallback, FlowLiveActivityEvent, FlowProgressCallback, FlowStepProgressEvent, LoopStep, LoopResult, ResolvedAgentStep, RunState, Step, StepResult, Workflow, WorkspaceSnapshot } from "./types.js";
 
 export type ArtifactMap = Record<string, any>;
 export interface ExecuteOptions { workflow: Workflow; root: string; cwd: string; inputs?: ArtifactMap; output?: "normal" | "quiet"; onProgress?: FlowProgressCallback; /** Extension-only transient activity; never persisted. */ onLiveActivity?: FlowLiveActivityCallback; readonly workflowSource?: string; }
@@ -312,7 +312,7 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
     });
     const previous = agentStep.history ? priorHistory(artifacts[agentStep.id]) : [];
     const after = agentStep.writes ? snapshotWorkspace(cwd) : undefined;
-    const agentResult = { ...r, loaded_skills: renderedPrompt.loaded_skills, ...(before && after ? { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) } : {}) };
+    const agentResult = { ...r, loaded_skills: renderedPrompt.loaded_skills, ...agentWorkspaceChanges(agentStep.writes ?? false, before, after) };
     result.result = agentResult;
     const finalStopReason = agentResult.stop_reasons.at(-1);
     if (finalStopReason === "error" || finalStopReason === "aborted") throw new Error(agentResult.error_message ?? `Agent stopped with reason: ${finalStopReason}`);
@@ -350,6 +350,12 @@ async function executeStep(step: Step, recordId: string, run: RunState, store: R
       emitStepProgress(onProgress, "step_finished", run, result, loopIteration);
     }
   }
+}
+
+export function agentWorkspaceChanges(writes: boolean, before?: WorkspaceSnapshot, after?: WorkspaceSnapshot): { changed: boolean; changed_files: string[] } {
+  if (!writes) return { changed: false, changed_files: [] };
+  if (!before || !after) throw new Error("Writing agent workspace snapshots are required");
+  return { changed: workspaceChanged(before, after), changed_files: changedFiles(before, after) };
 }
 
 export function emitStepProgress(onProgress: FlowProgressCallback | undefined, type: FlowStepProgressEvent["type"], run: RunState, result: StepResult, loopIteration?: number): void {
@@ -426,10 +432,14 @@ function applyStopWhen(step: Step, result: StepResult, artifacts: ArtifactMap): 
   return stopped;
 }
 
-export function resolveEffectiveAgentStep(step: AgentStep, artifacts: ArtifactMap): { step: AgentStep; variant?: NonNullable<AgentStep["variants"]>[number] } | undefined {
+export function resolveEffectiveAgentStep(step: AgentStep, artifacts: ArtifactMap): { step: ResolvedAgentStep; variant?: NonNullable<AgentStep["variants"]>[number] } | undefined {
   const variant = step.variants?.find((candidate) => shouldRun(candidate.when, artifacts));
   if (step.variants && !variant) return undefined;
-  return { step: variant ? { ...step, ...variant, id: step.id, variants: undefined } : step, ...(variant ? { variant } : {}) };
+  const resolved = variant ? { ...step, ...variant, id: step.id, variants: undefined } : step;
+  if (typeof resolved.model !== "string" || !resolved.model.trim() || typeof resolved.thinkingLevel !== "string" || typeof resolved.prompt !== "string" || !resolved.prompt) {
+    throw new Error(`${step.id}: resolved agent requires model, thinkingLevel, and prompt`);
+  }
+  return { step: resolved as ResolvedAgentStep, ...(variant ? { variant } : {}) };
 }
 
 function sameAgentSessionConfig(session: AgentSessionHandle, model: string, writes: boolean, thinkingLevel: string, tools: string[]): boolean {
