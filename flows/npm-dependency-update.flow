@@ -8,12 +8,12 @@ inputs:
     description: Include prerelease versions when selecting dependency updates.
 
 outputs:
-  summary: update_summary
-  updated_dependencies: updated_dependencies
-  changed: update.changed
-  changed_files: update.changed_files
-  tests_passed: if(update.changed == false, true, test.exit_code == 0)
-  tests_status: if(update.changed == false, "skipped", test.status)
+  summary: summarize_update.output
+  updated_dependencies: list_updated_dependencies.output
+  changed: update_state.changed == "true"
+  changed_files: update_state.changed_files
+  tests_passed: if(update_state.changed == "false", true, test.exit_code == 0)
+  tests_status: if(update_state.changed == "false", "skipped", test.status)
 
 steps:
   - id: clean_tree_guard
@@ -25,21 +25,140 @@ steps:
     console: on-failure
 
   - id: update
+    type: shell
+    command: |
+      set -e
+      if [ ! -f package.json ]; then
+        printf '%s\n' not-npm
+        exit 0
+      fi
+      if ! node -e 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8"))' >&2; then
+        printf '%s\n' fallback
+        exit 0
+      fi
+      if node -e 'const fs = require("node:fs"); const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")); const manager = pkg.packageManager; if (typeof manager === "string") process.exit(/^npm(?:@|$)/.test(manager) ? 0 : 1); const hasNpmLock = fs.existsSync("package-lock.json") || fs.existsSync("npm-shrinkwrap.json"); const hasCompetingLock = ["yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"].some((file) => fs.existsSync(file)); process.exit(hasNpmLock && !hasCompetingLock ? 0 : 2)' >&2; then
+        :
+      else
+        status=$?
+        if [ "$status" -eq 1 ]; then printf '%s\n' not-npm; else printf '%s\n' fallback; fi
+        exit 0
+      fi
+      declared_npm_version="$(node -e 'const pkg = JSON.parse(require("node:fs").readFileSync("package.json", "utf8")); const manager = pkg.packageManager; if (typeof manager === "string" && /^npm@/.test(manager)) process.stdout.write(manager.slice(4))')"
+      if [ -n "$declared_npm_version" ] && [ "$(npm --version)" != "$declared_npm_version" ]; then
+        printf '%s\n' fallback
+        exit 0
+      fi
+      prerelease=""
+      if [ "{{include_prerelease}}" = "true" ]; then prerelease=" --pre 1"; fi
+      if ! npx --yes npm-check-updates --packageFile package.json --target latest --upgrade${prerelease} >&2; then
+        printf '%s\n' fallback
+        exit 0
+      fi
+      if ! npm install >&2; then
+        printf '%s\n' fallback
+        exit 0
+      fi
+      printf '%s\n' updated
+    outputFormat: single-line
+    console: on-failure
+
+  - id: update_fallback
     type: agent
     model: cheap
     thinkingLevel: medium
     prompt: update.md
-    inputs: [include_prerelease]
-    outputs: [update_summary, updated_dependencies]
-    outputFormat: json
+    inputs: [include_prerelease, update.stderr]
     writes: true
     tools: [read, bash, edit, write, grep, find, ls]
+    when: update.output == "fallback"
+
+  - id: update_state
+    type: shell
+    command: |
+      set -e
+      changed_files="$({ git diff --name-only HEAD; git ls-files --others --exclude-standard; } | LC_ALL=C sort -u)"
+      if [ -n "$changed_files" ]; then printf '%s\n' true; else printf '%s\n' false; fi
+      if [ -n "$changed_files" ]; then printf '%s\n' "$changed_files"; fi
+    when: update.output == "updated" || update.output == "not-npm" || update_fallback.status == "succeeded"
+    outputFormat: lines
+    outputs: [changed, changed_files]
+    console: on-failure
+
+  - id: summarize_update
+    type: shell
+    command: |
+      node <<'NODE'
+      const fs = require("node:fs");
+      const { execFileSync } = require("node:child_process");
+      const fallback = "{{update.output}}" === "fallback";
+      const notNpm = "{{update.output}}" === "not-npm";
+      if (!fs.existsSync("package.json")) {
+        console.log("No root package.json found; no npm commands were run and no changes were made.");
+        process.exit(0);
+      }
+      let after;
+      try { after = JSON.parse(fs.readFileSync("package.json", "utf8")); }
+      catch {
+        console.log(fallback ? "Fallback update left a malformed root package.json unchanged; no dependency summary is available." : "Root package.json is malformed; no deterministic npm commands were run.");
+        process.exit(0);
+      }
+      if (notNpm) {
+        console.log("Repository does not declare npm as its package manager; no npm commands were run and no changes were made.");
+        process.exit(0);
+      }
+      let before = {};
+      try { before = JSON.parse(execFileSync("git", ["show", "HEAD:package.json"], { encoding: "utf8" })); } catch {}
+      const sections = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+      const changed = sections.some((section) => JSON.stringify(before[section] ?? {}) !== JSON.stringify(after[section] ?? {}));
+      let files = [];
+      try {
+        files = [...new Set([
+          ...execFileSync("git", ["diff", "--name-only", "HEAD"], { encoding: "utf8" }).trim().split("\n"),
+          ...execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { encoding: "utf8" }).trim().split("\n"),
+        ].filter(Boolean))];
+      } catch {}
+      const lockfileChanged = files.some((file) => file === "package-lock.json" || file === "npm-shrinkwrap.json");
+      const ignored = sections.flatMap((section) => Object.entries(after[section] ?? {}).flatMap(([name, spec]) =>
+        typeof spec === "string" && /^(file:|workspace:|git\+|github:|https?:|npm:)/.test(spec) ? [`${section}: ${name}`] : []));
+      const command = `npx --yes npm-check-updates --packageFile package.json --target latest --upgrade${"{{include_prerelease}}" === "true" ? " --pre 1" : ""}`;
+      const prefix = fallback ? "Used the fallback dependency update path" : `Ran ${command} and npm install`;
+      const result = changed || lockfileChanged
+        ? `${prefix}; ${changed ? "updated direct dependency declarations" : "no direct dependency declarations changed"}${lockfileChanged ? " and refreshed the npm lockfile" : ""}.`
+        : `${prefix}; no dependency declaration or npm lockfile changes were needed.`;
+      console.log(`${result}${ignored.length ? ` Left non-registry specs unchanged: ${ignored.join(", ")}.` : ""}`);
+      NODE
+    when: update.output == "updated" || update.output == "not-npm" || update_fallback.status == "succeeded"
+    outputFormat: single-line
+    console: on-failure
+
+  - id: list_updated_dependencies
+    type: shell
+    command: |
+      node <<'NODE'
+      const fs = require("node:fs");
+      const { execFileSync } = require("node:child_process");
+      if (!fs.existsSync("package.json")) { console.log("[]"); process.exit(0); }
+      let before = {}, after;
+      try {
+        before = JSON.parse(execFileSync("git", ["show", "HEAD:package.json"], { encoding: "utf8" }));
+        after = JSON.parse(fs.readFileSync("package.json", "utf8"));
+      } catch { console.log("[]"); process.exit(0); }
+      const sections = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+      const updates = sections.flatMap((section) => Object.entries(after[section] ?? {}).flatMap(([name, to]) => {
+        const from = before[section]?.[name];
+        return typeof from === "string" && typeof to === "string" && from !== to ? [{ section, name, from, to }] : [];
+      }));
+      console.log(JSON.stringify(updates));
+      NODE
+    when: update.output == "updated" || update.output == "not-npm" || update_fallback.status == "succeeded"
+    outputFormat: single-line
+    console: on-failure
 
   - id: check_and_repair
     type: loop
     maxIterations: 5
     until: lint.exit_code == 0 && test.exit_code == 0
-    when: update.changed == true
+    when: update_state.changed == "true"
     steps:
       - id: lint
         type: exec
@@ -67,6 +186,6 @@ steps:
         prompt: repair.md
         context: repair
         when: lint.exit_code != 0 || test.exit_code != 0
-        inputs: [update_summary, updated_dependencies, lint.exit_code, lint.output, test.exit_code, test.output, workspace_state.output]
+        inputs: [summarize_update.output, list_updated_dependencies.output, lint.exit_code, lint.output, test.exit_code, test.output, workspace_state.output]
         writes: true
         tools: [read, bash, edit, write, grep, find, ls]
