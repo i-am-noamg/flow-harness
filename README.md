@@ -31,6 +31,7 @@ Flow composes those standard primitives. It also differs from adjacent workflow 
 | Automation platforms (e.g. [n8n](https://docs.n8n.io/build/understand-workflows.md), Make, Zapier) | — | — | ✓ | — |
 | [Claude Code Dynamic Workflows](https://code.claude.com/docs/en/workflows) | ✓ | ✓ | — | — |
 | [Cursor Automations](https://cursor.com/docs/cloud-agent/automations) | — | — | — | — |
+| [Cursor Projects](https://cursor.com/blog/projects) | ✓ | — | — | — |
 | **Flow** | ✓ | ✓ | ✓ | ✓ |
 
 Optimization-grade persisted evidence captures the inputs, artifacts, command output, actual tool calls, model settings and usage, timing, and metrics an agent needs to improve a workflow.
