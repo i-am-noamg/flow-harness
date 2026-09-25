@@ -21,7 +21,7 @@ Prioritize, in every change:
   - `pi-extension.ts` — Pi tools, injected guidance, and flow presentation.
   - `command.ts` — bounded process execution and output capture.
   - `artifacts.ts` / `workspace.ts` — persisted runs and workspace change tracking.
-- `flows/` — declarative workflow definitions.
+- `flows/` — repo-local examples, not shipped with the harness.
 - `flows/prompts/<flow-name>/` — flow-local prompts; relative `prompt:` references in a workflow resolve from its flow-local prompt directory.
 - `test/` — Node test-runner tests.
 - `dist/` — generated build output; edit source instead.
